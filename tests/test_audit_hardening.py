@@ -193,14 +193,24 @@ def test_pipeline_code_reads_none_of_the_dropped_secrets():
     denylist would silently break jobs: fail here instead."""
     import ast
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    local = {f[:-3] for f in os.listdir(root) if f.endswith(".py")}
+    backend = os.path.join(root, "backend")
+    local = set()
+    for base in [root, os.path.join(backend, "pipeline"), os.path.join(backend, "services"), os.path.join(backend, "utils"), os.path.join(backend, "api")]:
+        if os.path.isdir(base):
+            local.update({f[:-3] for f in os.listdir(base) if f.endswith(".py") and f != "__init__.py"})
     seen, stack = set(), ["main", "quality_probe"]
     while stack:
         mod = stack.pop()
         if mod in seen:
             continue
         seen.add(mod)
-        src = open(os.path.join(root, mod + ".py"), encoding="utf-8").read()
+        src = None
+        for base in [root, os.path.join(backend, "pipeline"), os.path.join(backend, "services"), os.path.join(backend, "utils"), os.path.join(backend, "api")]:
+            target = os.path.join(base, mod + ".py")
+            if os.path.isfile(target):
+                src = open(target, encoding="utf-8").read()
+                break
+        assert src is not None, f"Source file for module {mod} not found"
         for name in app_module.CHILD_ENV_DENYLIST:
             assert f'"{name}"' not in src and f"'{name}'" not in src, (mod, name)
         for node in ast.walk(ast.parse(src)):

@@ -1,3 +1,20 @@
+import os
+import sys
+
+# Ensure backend packages and modules are discoverable on sys.path
+_REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+_BACKEND_DIR = os.path.join(_REPO_ROOT, "backend")
+for _p in [
+    _REPO_ROOT,
+    _BACKEND_DIR,
+    os.path.join(_BACKEND_DIR, "pipeline"),
+    os.path.join(_BACKEND_DIR, "services"),
+    os.path.join(_BACKEND_DIR, "utils"),
+    os.path.join(_BACKEND_DIR, "api"),
+]:
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import time
 import cv2
 import subprocess

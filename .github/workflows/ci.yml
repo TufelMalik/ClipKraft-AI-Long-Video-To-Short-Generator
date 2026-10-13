@@ -25,6 +25,8 @@ jobs:
           opencv-python-headless python-dotenv google-genai fastapi boto3
           PyJWT email-validator python-multipart
       - name: Run tests
+        env:
+          PYTHONPATH: .:backend:backend/pipeline:backend/services:backend/utils:backend/api
         run: pytest tests/ -v
 
   frontend-build:

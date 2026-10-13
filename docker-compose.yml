@@ -11,6 +11,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      - PYTHONPATH=/app:/app/backend:/app/backend/pipeline:/app/backend/services:/app/backend/utils:/app/backend/api
 
   frontend:
     build:

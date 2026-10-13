@@ -27,6 +27,7 @@ services:
       db:
         condition: service_healthy
     environment:
+      - PYTHONPATH=/app:/app/backend:/app/backend/pipeline:/app/backend/services:/app/backend/utils:/app/backend/api
       - BILLING_ENABLED=true
       - DATABASE_URL=postgresql+asyncpg://openshorts:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for cloud mode}@db:5432/openshorts
       - JWT_SECRET=${JWT_SECRET}

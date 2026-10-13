@@ -1,4 +1,12 @@
 import os
+import sys
+from pathlib import Path
+
+_repo_root = Path(__file__).resolve().parent.parent
+for _p in [_repo_root, _repo_root / "backend", _repo_root / "backend" / "pipeline", _repo_root / "backend" / "services", _repo_root / "backend" / "utils", _repo_root / "backend" / "api"]:
+    if _p.is_dir() and str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
 try:
     from hooks import create_hook_image
 except ImportError:
