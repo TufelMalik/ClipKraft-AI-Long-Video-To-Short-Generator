@@ -1,6 +1,6 @@
-# OpenShorts — Long Video to Short Generator
+# ClipKraft — AI Long Video To Short Generator
 
-OpenShorts converts long-form videos into vertical clips with AI moment detection, smart reframing, subtitles, hook text, and optional dubbing. This repository is configured for a simple Docker-based Windows setup.
+ClipKraft converts long-form videos into vertical clips with AI moment detection, smart reframing, subtitles, hook text, and optional dubbing. This repository is configured for a simple Docker-based Windows setup.
 
 > This is a public repository. Never commit API keys, `.env`, credential files, uploaded videos, or generated output.
 
@@ -25,7 +25,7 @@ Optional services:
 Open PowerShell and run:
 
 ```powershell
-git clone https://github.com/TufelMalik/OpenShort-Long-Video-To-Short-Generator.git "D:\Open Short"
+git clone https://github.com/TufelMalik/ClipKraft-AI-Long-Video-To-Short-Generator.git "D:\Open Short"
 cd "D:\Open Short"
 ```
 

@@ -17,8 +17,8 @@ The archive itself is intentionally not committed because it duplicates the Git 
 ## Restore the exact upstream snapshot
 
 ```powershell
-git clone https://github.com/TufelMalik/OpenShort-Long-Video-To-Short-Generator.git
-cd OpenShort-Long-Video-To-Short-Generator
+git clone https://github.com/TufelMalik/ClipKraft-AI-Long-Video-To-Short-Generator.git
+cd ClipKraft-AI-Long-Video-To-Short-Generator
 git checkout openshorts-upstream-2026-10-13
 ```
 
