@@ -9,6 +9,8 @@ services:
       - /app/__pycache__
       - ./output:/app/output
     restart: unless-stopped
+    env_file:
+      - .env
 
   frontend:
     build:

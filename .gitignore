@@ -26,6 +26,14 @@ output/
 
 # Secrets
 .env
+.env.*
+!.env.example
+*API_KEY*.txt
+*api_key*.txt
+*credentials*.json
+*service-account*.json
+*.pem
+*.key
 
 # Generated metadata
 *_metadata.json
