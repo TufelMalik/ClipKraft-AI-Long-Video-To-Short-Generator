@@ -349,8 +349,7 @@ class AutopilotSettings(Base):
                      primary_key=True)
     enabled = Column(Boolean, nullable=False, default=False)
     enabled_at = Column(DateTime(timezone=True), nullable=True)
-    # The user confirmed they own (or have rights to) the channel's content.
-    # /api/process requires that attestation per job; Autopilot records it once.
+    # Legacy column retained for existing databases; new runs do not use it.
     rights_ack_at = Column(DateTime(timezone=True), nullable=True)
     autopublish = Column(Boolean, nullable=False, default=False)
     publish_platforms = Column(JSONB, nullable=True)      # ["tiktok", "instagram", "youtube"]

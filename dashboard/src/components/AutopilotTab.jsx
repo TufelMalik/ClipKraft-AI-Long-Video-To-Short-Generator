@@ -164,7 +164,7 @@ export default function AutopilotTab({ onOpenProject, onUpgrade, justConnected }
   }, []);
 
   const toggleEnabled = useCallback(async (on) => {
-    const s = await save(on ? { enabled: true, rights_ack: true } : { enabled: false });
+    const s = await save({ enabled: on });
     if (s) {
       track(on ? 'AutopilotEnabled' : 'AutopilotDisabled', { props: { autopublish: String(!!s.autopublish) } });
       setNotice(on ? 'Autopilot is on. Your next video will be clipped automatically.' : 'Autopilot paused.');

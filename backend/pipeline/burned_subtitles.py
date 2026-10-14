@@ -24,6 +24,7 @@ renders exactly as it did before this module existed.
 """
 import json
 import os
+import time
 
 ENABLED = os.environ.get("SUBTITLE_BAND_CHECK", "1").strip() != "0"
 
@@ -126,13 +127,9 @@ def detect(video_path, frames=None):
         client = genai.Client(api_key=api_key)
         parts = [genai_types.Part.from_bytes(data=b, mime_type="image/jpeg")
                  for b in frames]
-        response = client.models.generate_content(
-            model=model_name,
-            contents=parts + [PROMPT],
-            config=genai_types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=SubtitleAnswer,
-            ))
+        config = genai_types.GenerateContentConfig(
+            response_mime_type="application/json", response_schema=SubtitleAnswer)
+        response = _generate_with_retry(client, model_name, parts + [PROMPT], config)
         gemini_worker.raise_if_blocked(response)
         answer = json.loads(response.text) or {}
     except Exception as e:
@@ -149,3 +146,17 @@ def detect(video_path, frames=None):
         print(f"   💬 Source has burned-in subtitles ({seen}/{len(per_frame)} frames) — "
               f"trimming below {band:.0%} so only our captions show.")
     return band
+
+
+def _generate_with_retry(client, model, contents, config):
+    """Retry temporary service failures twice; keep this optional check bounded."""
+    for attempt in range(3):
+        try:
+            return client.models.generate_content(model=model, contents=contents, config=config)
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+            if str(code) not in {"429", "500", "502", "503", "504"} or attempt == 2:
+                raise
+            delay = (2, 4)[attempt]
+            print(f"   ⏳ Subtitle check temporarily unavailable — retrying in {delay}s.")
+            time.sleep(delay)

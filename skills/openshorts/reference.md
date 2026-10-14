@@ -34,7 +34,6 @@ a `file` part to upload a local video instead):
 ```json
 {
   "url": "https://www.youtube.com/watch?v=...",
-  "acknowledged": true,
   "layouts": ["auto"],
   "output_format": "auto",
   "target_clips": 4,
@@ -46,7 +45,7 @@ a `file` part to upload a local video instead):
 }
 ```
 
-`acknowledged: true` is the rights attestation and is required. `layouts`
+`layouts`
 accepts a JSON list or a comma separated string of `auto`, `split`,
 `screencast`, `speaker_cut`, `punch_in`. `output_format` is one of `auto`,
 `vertical`, `horizontal`, `square`. `target_clips` is 1 to 15;

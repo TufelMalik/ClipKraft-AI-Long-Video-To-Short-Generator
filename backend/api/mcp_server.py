@@ -46,9 +46,7 @@ INSTRUCTIONS = (
     "30-60s or pass webhook_url) -> list_clips -> optionally add_subtitles / "
     "recut_clip / publish_clip. Check get_quota before large jobs. When a "
     "tool reports quota_exceeded or no_plan, tell the user and give them the "
-    "upgrade_url it returns: it opens the plan's checkout. The user "
-    "must own the content or hold the rights: ask once, then pass "
-    "confirm_rights=true."
+    "upgrade_url it returns: it opens the plan's checkout."
 )
 
 # Headers an MCP caller may use to authenticate / bring their own keys; they are
@@ -71,9 +69,7 @@ TOOLS = [
             "with the URL the user gave you; do not fetch, search or inspect the "
             "URL yourself first (you cannot access the video, and it is not "
             "needed). Returns a job_id immediately — the work takes minutes; "
-            "poll get_job_status or pass webhook_url to be called back. The "
-            "caller must own the content or hold the rights to process it "
-            "(confirm_rights)."
+            "poll get_job_status or pass webhook_url to be called back."
         ),
         "inputSchema": {
             "type": "object",
@@ -108,10 +104,6 @@ TOOLS = [
                                    "when the source already has subtitles burned in (they would "
                                    "stack) or the user wants clean clips; add_subtitles can still "
                                    "caption a clip later.",
-                },
-                "confirm_rights": {
-                    "type": "boolean",
-                    "description": "Must be true: the user owns the content or has rights to process it.",
                 },
                 "layouts": {
                     "type": "array",
@@ -151,7 +143,7 @@ TOOLS = [
                     "description": "Maximum clip length in seconds (default 60). Must be ≥ 5s above the minimum.",
                 },
             },
-            "required": ["confirm_rights"],
+            "required": [],
         },
     },
     {
@@ -362,15 +354,11 @@ def _api_error(resp: httpx.Response) -> dict:
 
 
 async def _tool_process_video(client, args):
-    if not args.get("confirm_rights"):
-        return {"error": "confirm_rights must be true: the user must own the "
-                         "content or hold the rights to process it."}, True
     if not args.get("source_url") and not args.get("upload_id"):
         return {"error": "Give source_url (a public video link) or upload_id (from create_upload)."}, True
     body = {
         "url": args.get("source_url"),
         "upload_id": args.get("upload_id"),
-        "acknowledged": True,
         "layouts": args.get("layouts") or [],
         "output_format": args.get("output_format"),
         "force_low_quality": bool(args.get("force_low_quality")),

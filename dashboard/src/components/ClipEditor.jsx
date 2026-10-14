@@ -7,6 +7,7 @@ import {
 import { getApiUrl } from '../config';
 import { apiFetch, apiJson, QuotaError, openQuotaWall } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import BrollNotes from './BrollNotes';
 
 // Full-screen clip editor: shows WHICH source segments a clip was cut from,
 // lets the user trim/extend/split/reorder them (word-snapped), and re-renders
@@ -862,6 +863,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                 throw new Error(detail);
             }
             const data = await res.json();
+            setEdl((prev) => ({ ...prev, broll_points: data.broll_points || [], output_duration: data.duration }));
             setRenderedSegments(data.recipe.segments.map((s) => ({ ...s })));
             setRenderedFraming(data.framing || 'auto');
             setFraming(data.framing || 'auto');
@@ -1524,6 +1526,9 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 </span>
                             </label>
                         </div>
+
+                        <BrollNotes jobId={jobId} clipIndex={clipIndex} points={edl?.broll_points}
+                            duration={edl?.output_duration || total} disabled={rendering} />
 
                         {/* keyboard legend — moved off the clip track, which no longer
                             has the width for it */}

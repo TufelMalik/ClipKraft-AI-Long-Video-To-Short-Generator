@@ -280,6 +280,9 @@ CAPTION_PRESETS = {
                 "highlight_color": "#FFFFFF", "border_width": 5, "effect": "pop",
                 "uppercase": True, "max_chars": 1},
     # No outline, soft shadow, sentence case.
+    "neon": {**_PRESET_BASE,"font_name":"Montserrat ExtraBold","font_size":40,
+             "highlight_color":"#00FFFF","border_width":2,"effect":"glow",
+             "uppercase":False,"max_chars":12},
     "clean": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 34,
               "highlight_color": "#FFFFFF", "border_width": 0, "shadow": 2,
               "effect": "none", "uppercase": False, "base_opacity": 0.7,
@@ -351,7 +354,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                  highlight_color="#FFD700", bg_color="#000000", bg_opacity=0.0,
                  effect="none", base_opacity=1.0, uppercase=False,
                  margin_v=SAFE_MARGIN_V, split_ranges=None,
-                 reveal=False, shadow=0):
+                 reveal=False, shadow=0, placement_ranges=None, speaker_ranges=None):
     """
     Generates a karaoke-style ASS file: each block is shown like the SRT path,
     but the currently spoken word is rendered in highlight_color (modern
@@ -394,6 +397,9 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     seam_ranges = [(float(a), float(b)) for a, b in (split_ranges or [])]
 
     def seam_prefix(t):
+        for start,end,position in placement_ranges or []:
+            if start <= t < end:
+                return '{\\an'+str(align_map.get(position,2))+'}'
         return "{\\an5}" if any(a <= t < b for a, b in seam_ranges) else ""
 
     safe_font = _sanitize_font_name(font_name)
@@ -487,6 +493,8 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
             ev_end = block[i + 1]['start'] if i < len(block) - 1 else block[-1]['end']
             if ev_end <= ev_start:
                 continue
+            speaker_color = next((color for start,end,color in (speaker_ranges or [])
+                                  if start <= ev_start < end),None)
 
             parts = []
             for j, other in enumerate(block):
@@ -494,7 +502,9 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                 if uppercase:
                     text = text.upper()
                 if j == i:
-                    parts.append(f"{active_prefix}{text}{{\\r}}")
+                    color_tag = (f"{{\\1c{_hex_to_ass_inline_color(speaker_color)}}}"
+                                 if speaker_color else '')
+                    parts.append(f"{active_prefix}{color_tag}{text}{{\\r}}")
                 elif reveal and j > i:
                     parts.append(f"{{\\alpha&HFF&}}{text}{{\\r}}")
                 else:

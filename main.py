@@ -49,8 +49,8 @@ from clip_selection import (build_transcript_windows, clip_count_targets,
                             clip_duration_bounds, dedupe_overlapping,
                             score_batches, shortlist_target,
                             snap_clip_to_words, trim_to_best)
-from ffmpeg_utils import (video_encode_args, audio_encode_args, cut_clip, QUALITY,
-                          QUALITY_FAST, METADATA_SCRUB)
+from ffmpeg_utils import (video_encode_args, audio_encode_args, cut_clip, clip_worker_count, QUALITY,
+                          QUALITY_FAST, METADATA_SCRUB, prepare_opencv_source)
 from dotenv import load_dotenv
 import json
 
@@ -1021,6 +1021,10 @@ def download_youtube_video(url, output_dir=".", on_audio=None):
         # clients, API JSON, m3u8), 4-9 s of round trips per attempt.
         with yt_dlp.YoutubeDL(_base_opts(extractor_args, proxy, cookies)) as ydl:
             info = ydl.extract_info(url, download=False, process=False)
+        if os.environ.get('CHANNEL_ID'):
+            actual_creator = info.get('channel_id') or info.get('uploader_id')
+            if actual_creator:
+                os.environ['SOURCE_CREATOR_ID'] = actual_creator
         sanitized = sanitize_filename(info.get('title', 'youtube_video'))
         # Only when the whole source is far bigger than what was paid for: a
         # ranged fetch goes through ffmpeg at ~1-2.5x realtime, while a native
@@ -1120,6 +1124,9 @@ def download_youtube_video(url, output_dir=".", on_audio=None):
                 break
             except Exception as e:
                 last_err = e
+                import channel_safety
+                if isinstance(e,channel_safety.SafetyError):
+                    raise
                 attempt_log.append({"label": label, "ok": False,
                                     "bytes": _dl_bytes["total"] + _dl_bytes["partial"],
                                     "paid": proxy is not None and proxy == _proxy,
@@ -1229,7 +1236,8 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         return None  # silent video: nothing to caption
     try:
         import subtitles as _subs
-        style = _subs.AUTO_CAPTION_STYLE
+        preset = _subs.CAPTION_PRESETS.get(os.environ.get('AUTO_CAPTION_PRESET','default'),{})
+        style = {**_subs.AUTO_CAPTION_STYLE,**preset}
         output_dir = os.path.dirname(clip_path)
         stem = os.path.basename(clip_path)
         generation_id = int(time.time())
@@ -1262,15 +1270,25 @@ def auto_caption_clip(clip_path, transcript, clip_start, clip_end, split_ranges=
         if split_ranges is None:
             import layout_ranges as _layouts
             split_ranges = _layouts.split_ranges(_layouts.read(clip_path))
+        import caption_safe
+        import layout_ranges as _layouts
+        placements = caption_safe.placement_ranges(clip_path,_layouts.read(clip_path),
+                                                   clip_end-clip_start)
+        import active_speaker
+        speakers = [(r['start'],r['end'],'#FFFFFF' if r['speaker']==0 else '#FFE500')
+                    for r in active_speaker.read_segments(clip_path)] if os.environ.get('AUTO_SPEAKER_COLORS')=='1' else []
         if not _subs.generate_ass(
                 transcript, clip_start, clip_end, ass_path,
                 split_ranges=split_ranges,
+                placement_ranges=placements,
+                speaker_ranges=speakers,
                 max_chars=style["max_chars"], max_duration=style["max_duration"],
                 alignment=style["alignment"], fontsize=style["font_size"],
                 font_name=style["font_name"], font_color=style["font_color"],
                 border_color=style["border_color"], border_width=style["border_width"],
                 highlight_color=style["highlight_color"], effect=style["effect"],
-                base_opacity=style["base_opacity"], uppercase=style["uppercase"]):
+                base_opacity=style["base_opacity"], uppercase=style["uppercase"],
+                reveal=style.get('reveal',False), shadow=style.get('shadow',0)):
             print("   ℹ️ No words in range — clip ships without captions.")
             return None
 
@@ -1316,7 +1334,7 @@ def auto_hook_clip(clip_path, clip, captions=None):
         return None
     style = os.environ.get("AUTO_HOOK_STYLE", "pill")
     try:
-        seconds = float(os.environ.get("AUTO_HOOK_SECONDS", "5"))
+        seconds = float(os.environ.get("AUTO_HOOK_SECONDS", "3.5" if os.environ.get('RELEASE_V2')=='1' else '5'))
     except ValueError:
         seconds = 5.0
     try:
@@ -1331,7 +1349,9 @@ def auto_hook_clip(clip_path, clip, captions=None):
         config = {"text": text, "style": style, "position": "auto",
                   "duration_seconds": seconds}
         place = {"position": "auto", "layout_ranges": clip.get('layout_ranges'),
-                 "has_captions": bool(captions)}
+                 "has_captions": bool(captions),
+                 'animated':os.environ.get('RELEASE_V2')=='1',
+                 'start_seconds':(clip.get('editorial_timeline') or {}).get('intro_seconds',0.)}
 
         def note(result):
             if isinstance(result, dict) and result.get("y") is not None:
@@ -1607,13 +1627,21 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
     from reframe_v2 import delivery_size
     OUTPUT_WIDTH, OUTPUT_HEIGHT = delivery_size(original_width, original_height,
                                                 aspect_ratio)
+    if abs(aspect_ratio-9/16)<.001:
+        OUTPUT_WIDTH,OUTPUT_HEIGHT = 1080,1920
 
     # Initialize Cameraman
     cameraman = SmoothedCameraman(OUTPUT_WIDTH, OUTPUT_HEIGHT, original_width, original_height, aspect_ratio=aspect_ratio)
+    from subject_framing import BodyCamera, detect_upper_body
+    body_camera = BodyCamera(original_width, original_height, aspect_ratio)
+    use_body = (os.environ.get('UPPER_BODY_CROP', '1') != '0'
+                and original_width / original_height > aspect_ratio * 1.01)
     
     # --- New Strategy: Per-Scene Analysis ---
     print("\n   🤖 Step 3: Analyzing Scenes for Strategy (Single vs Group)...")
     scene_strategies = analyze_scenes_strategy(input_video, scenes)
+    if os.environ.get('REFRAME_FILL', '1') != '0':
+        scene_strategies = ['TRACK'] * len(scene_strategies)
     # scene_strategies is a list of 'TRACK' or 'General' corresponding to scenes
     
     print("\n   ✂️ Step 4: Processing video frames...")
@@ -1625,7 +1653,7 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
          '-f', 'rawvideo', '-pix_fmt', 'bgr24',
          '-video_size', f'{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}',
          '-framerate', str(fps), '-i', 'pipe:0',
-         *video_encode_args(QUALITY_FAST), '-an', silent_video_path],
+         *video_encode_args(QUALITY_FAST), '-r',str(max(30.,float(fps))), '-an', silent_video_path],
         stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
     reader = cv2.VideoCapture(input_video)
@@ -1680,6 +1708,7 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
                 if is_scene_start and SCENE_CUT_RESET:
                     speaker_tracker.reset()
                     cameraman.begin_scene()
+                    body_camera.begin_scene()
 
                 # Always detect on a cut, whatever the stride: the new shot's
                 # subject has to be found before the first frame is framed.
@@ -1689,13 +1718,20 @@ def process_video_to_vertical(input_video, final_output_video, aspect_ratio=ASPE
                     target_box = speaker_tracker.get_target(candidates, frame_number, original_width)
                     if target_box:
                         cameraman.update_target(target_box)
+                        if use_body:
+                            body_camera.update(target_box, detect_upper_body(frame, target_box))
                     elif frame_number % YOLO_FALLBACK_STRIDE == 0 or (is_scene_start and SCENE_CUT_RESET):
                         person_box = detect_person_yolo(frame)
                         if person_box:
                             cameraman.update_target(person_box)
+                            if use_body:
+                                body_camera.update(person_box)
                     stage_seconds['detect'] += time.time() - t_det
 
                 x1, y1, x2, y2 = cameraman.get_crop_box(force_snap=is_scene_start)
+                if use_body:
+                    bw, bh, x1, y1 = body_camera.box()
+                    x2, y2 = x1 + bw, y1 + bh
 
                 # Crop
                 if y2 > y1 and x2 > x1:
@@ -1966,7 +2002,7 @@ def score_batch_size():
     return 3 if llm_backend.active() else 8
 
 
-def get_viral_clips(transcript_result, video_duration):
+def get_viral_clips(transcript_result, video_duration, audio_path=None):
     """Two-pass clip selection: score transcript windows, then detail the best.
 
     Windowing gives even coverage on long videos (a single call over the whole
@@ -2022,8 +2058,16 @@ def get_viral_clips(transcript_result, video_duration):
         # than ~30 min. See clip_selection.score_batches.
         target = shortlist_target(video_duration)
 
+        import moment_signals
+        envelope = []
+        if audio_path:
+            import active_speaker
+            envelope = active_speaker.audio_envelope(audio_path,0.,video_duration)
+        windows = moment_signals.annotate_windows(windows,envelope)
+
         def _payload(ws):
-            return [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"]} for w in ws]
+            return [{"id": w["id"], "start": w["start"], "end": w["end"], "text": w["text"],
+                     'signals':w.get('signals',{})} for w in ws]
 
         def _score_prompt(ws):
             return gemini_worker.SCORE_PROMPT_TEMPLATE.format(
@@ -2037,8 +2081,11 @@ def get_viral_clips(transcript_result, video_duration):
 
         # Shortlist the top windows; scale with duration so long videos surface
         # more candidates without exploding the detail call.
-        scored.sort(key=lambda w: w.get("score", 0), reverse=True)
         by_id = {w["id"]: w for w in windows}
+        for window in scored:
+            if window.get('id') in by_id:
+                window['score'] = moment_signals.ranked_score(window.get('score'),by_id[window['id']]['signals'])
+        scored.sort(key=lambda w: w.get("score", 0), reverse=True)
         shortlist = [by_id[w["id"]] for w in scored[:target] if w.get("id") in by_id]
         if not shortlist:
             shortlist = windows[:target]  # scoring returned nothing usable
@@ -2100,7 +2147,9 @@ def get_viral_clips(transcript_result, video_duration):
             s["proposed"] = [s.get("start", 0), s.get("end", 0)]
             ns, ne = snap_clip_to_words(s.get("start", 0), s.get("end", 0), words, video_duration,
                                         min_duration=min_secs, max_duration=max_secs)
+            ne = moment_signals.complete_thought_end(ns,ne,words,min_secs)
             s["start"], s["end"] = ns, ne
+            s['moment_signals'] = moment_signals.text_signals(' '.join(w['w'] for w in words if ns<=w['s']<ne))
         deduped = dedupe_overlapping(shorts)
         if len(deduped) < len(shorts):
             print(f"   Dropped {len(shorts) - len(deduped)} clip(s) overlapping a "
@@ -2261,6 +2310,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     output_format = args.format
+    os.environ.setdefault('RELEASE_V2','1')
+    import editorial
+    editorial_config = {}
+    if os.environ.get('EDITORIAL_CONFIG_PATH'):
+        with open(os.environ['EDITORIAL_CONFIG_PATH'],encoding='utf-8') as f:
+            editorial_config = json.load(f)
+    if os.environ.get('CHANNEL_ID'):
+        import channel_safety
+        channel_safety.select_channel(channel_safety.load_profiles(),os.environ['CHANNEL_ID'],os.environ.get('CLIP_NICHE'))
 
     script_start_time = time.time()
     
@@ -2300,7 +2358,7 @@ if __name__ == '__main__':
                 t = transcribe_video(audio_path)
                 early["transcript"] = t
                 if audio_duration and not speech_is_sparse(t, audio_duration):
-                    early["clips"] = get_viral_clips(t, audio_duration)
+                    early["clips"] = get_viral_clips(t, audio_duration,audio_path=audio_path)
             except Exception as e:
                 print(f"   ℹ️ Early transcription skipped ({type(e).__name__}: {e}).")
                 early["transcript"] = early["clips"] = None
@@ -2363,6 +2421,19 @@ if __name__ == '__main__':
         # The cut rewrites the file in place: a new size/mtime means it happened.
         if _stamp(input_video) != _before and globals().get("early") is not None:
             early["invalid"] = True  # its words cover the part that was cut off
+
+    # OpenCV wheels can lack a software AV1 decoder. Normalize once before
+    # visual sampling so every classifier and reframer sees readable frames.
+    original_video = input_video
+    input_video = prepare_opencv_source(input_video, _ensure_dir(output_dir or "."))
+    if input_video != original_video:
+        import atexit
+        def _remove_compatible_source(path=input_video):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        atexit.register(_remove_compatible_source)
 
     # Layout choice is per SOURCE video, not per clip: one upload and one call
     # instead of one per clip, and the answer is a property of the material
@@ -2481,7 +2552,7 @@ if __name__ == '__main__':
             print("♻️ Using the clips Gemini picked while the video downloaded.")
             clips_data = early_clips
         elif transcript is not None:
-            clips_data = get_viral_clips(transcript, duration)
+            clips_data = get_viral_clips(transcript, duration,audio_path=input_video)
         else:
             clips_data = get_visual_clips(input_video, duration)
 
@@ -2497,12 +2568,19 @@ if __name__ == '__main__':
             # Save metadata. Silent videos have no transcript → no subtitles,
             # which is correct (there's no speech to caption).
             clips_data['transcript'] = transcript or {"language": "none", "segments": []}
+            for pending_clip in clips_data['shorts']:
+                pending_clip['export_status'] = 'pending'
             # The clip editor's re-render path needs to find the source video
             # again and reproduce the render settings, so record both. The
             # basename is enough — the file sits in the job dir (URL jobs with
             # --keep-original) or in uploads/ (upload jobs).
             clips_data['source_video'] = os.path.basename(input_video)
             clips_data['output_format'] = output_format
+            clips_data['editorial_settings'] = editorial_config
+            if os.environ.get('CHANNEL_ID'):
+                clips_data['channel_id'] = os.environ['CHANNEL_ID']
+                clips_data['source_creator_id'] = os.environ.get('SOURCE_CREATOR_ID')
+                clips_data['niche'] = os.environ.get('CLIP_NICHE')
             if source_subtitle_band:
                 clips_data['source_subtitle_band'] = source_subtitle_band
             metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
@@ -2514,6 +2592,7 @@ if __name__ == '__main__':
             # clip. Renders are mostly ffmpeg subprocesses (parallelize well);
             # detector inference is serialized internally via DETECT_LOCK.
             def _process_one_clip(i, clip):
+                clip['export_status'] = 'pending'
                 start = clip['start']
                 end = clip['end']
                 print(f"\n🎬 Processing Clip {i+1}: {start}s - {end}s")
@@ -2526,6 +2605,10 @@ if __name__ == '__main__':
                 try:
                     # ffmpeg cut — re-encoding for precision on strict seconds
                     cut_clip(input_video, clip_temp_path, start, end, i + 1)
+                    if os.environ.get('PUNCH_IN') == '1':
+                        import punch_in
+                        with open(clip_temp_path+'.beats.json','w',encoding='utf-8') as f:
+                            json.dump(punch_in.word_emphasis(transcript or {},start,end),f)
 
                     # Layer order: the canonical reframe stays CLEAN, the hook
                     # is a derived hooked_ file, captions go last on top of
@@ -2539,11 +2622,34 @@ if __name__ == '__main__':
                                           subtitle_band=source_subtitle_band)
                     if success:
                         print(f"   🎞️ Clip {i+1} framed")
+                        import subtitles as _subs
+                        clip['caption_style'] = {**_subs.CAPTION_PRESETS.get(
+                            os.environ.get('AUTO_CAPTION_PRESET','default'),_subs.CAPTION_PRESETS['default']),
+                            'position':'bottom','speaker_colors':bool(editorial_config.get('speaker_colors'))}
+                        if os.environ.get('CHANNEL_ID'):
+                            import channel_safety
+                            clip['channel_id'] = os.environ['CHANNEL_ID']
+                            clip['source_creator_id'] = os.environ.get('SOURCE_CREATOR_ID')
+                            clip['niche'] = os.environ.get('CLIP_NICHE')
+                            signature = channel_safety.fingerprint(clip_temp_path)
                     deliver_path = clip_final_path
+                    caption_transcript, caption_start, caption_end = transcript, start, end
+                    if success and editorial.enabled(editorial_config):
+                        deliver_path, caption_transcript, caption_end, timeline = editorial.assemble(
+                            clip_final_path, editorial_config, transcript or {}, start, end)
+                        caption_start = 0.0
+                        clip['editorial_transcript'] = caption_transcript
+                        clip['editorial_timeline'] = timeline
+                        clip['output_duration'] = caption_end
                     # Which stretches were stacked (SPLIT): captions go on the
                     # seam there, and /api/subtitle needs it again later.
                     import layout_ranges as _layouts
-                    clip['layout_ranges'] = _layouts.read(clip_final_path)
+                    clip['layout_ranges'] = _layouts.read(deliver_path)
+                    import moment_signals
+                    import recut
+                    relative_words = caption_transcript if caption_start==0. else recut.virtual_transcript(
+                        caption_transcript or {},[{'start':caption_start,'end':caption_end}])
+                    clip['broll_points'] = moment_signals.broll_suggestions(relative_words,caption_end-caption_start)
                     # The hook was written from the transcript alone. When the
                     # render put this clip's meaning on the screen, rewrite hook
                     # and title from three of its frames BEFORE burning them.
@@ -2556,18 +2662,22 @@ if __name__ == '__main__':
                         # outputs) when both are on; see auto_hook_clip.
                         plan = None
                         if (clip.get('viral_hook_text') or '').strip():
-                            plan = auto_caption_clip(clip_final_path, transcript, start, end,
+                            plan = auto_caption_clip(deliver_path, caption_transcript, caption_start, caption_end,
                                                      split_ranges=split_ranges, plan_only=True)
-                        hooked = auto_hook_clip(clip_final_path, clip, captions=plan)
+                        hooked = auto_hook_clip(deliver_path, clip, captions=plan)
                         if hooked:
                             deliver_path, clip['auto_hook'] = hooked
                             captioned = clip['auto_hook'].pop("_captioned", None)
                     if success:
                         if not captioned:
                             captioned = auto_caption_clip(
-                                deliver_path, transcript, start, end,
+                                deliver_path, caption_transcript, caption_start, caption_end,
                                 split_ranges=split_ranges)
                         served = captioned or deliver_path
+                        if clip.get('channel_id'):
+                            clip['source_diversity'] = channel_safety.ledger().claim(
+                                f'{os.path.basename(output_dir)}:{i}',clip['channel_id'],
+                                clip['source_creator_id'],signature)
                         if os.environ.get("WATERMARK") == "1":
                             served = mark_delivery(served)
                         print(f"   ✅ Clip {i+1} ready: {clip_final_path}")
@@ -2579,16 +2689,24 @@ if __name__ == '__main__':
                         # Printed only after the full chain (reframe, watermark,
                         # hook, captions) so the file is complete when it is
                         # announced, never one that ffmpeg is still writing.
+                        clip['export_status'] = 'ready'
+                        clip['rendered_file'] = os.path.basename(served)
                         print(f"CLIP_READY {i} {os.path.basename(served)}")
+                    else:
+                        clip['export_status'] = 'failed'
                     return success
+                except Exception:
+                    clip['export_status'] = 'failed'
+                    raise
                 finally:
                     if os.path.exists(clip_temp_path):
                         os.remove(clip_temp_path)
+                    if os.path.isfile(clip_temp_path+'.beats.json'):
+                        os.remove(clip_temp_path+'.beats.json')
 
-            # 6, not 3: measured side by side on the GPU host at load 48-67, a 7-clip
-            # job finished 16% sooner with the same CPU, and the peak VRAM stayed
-            # at 12 GB of 20 (bench, 25-sep-2026).
-            clip_workers = max(int(os.environ.get("CLIP_WORKERS", "6")), 1)
+            # Six was measured on the GPU host; CPU encodes need a smaller
+            # pool to avoid exhausting host/container memory at 1080x1920.
+            clip_workers = clip_worker_count()
             shorts = clips_data['shorts']
             failed = []
             if os.environ.get("WATERMARK") == "1":
@@ -2627,9 +2745,8 @@ if __name__ == '__main__':
 
             # Persist per-clip render results added by the workers (auto_hook)
             # so the editor can see what is already burned into each clip.
-            if any('auto_hook' in c or 'hook_grounding' in c for c in shorts):
-                with open(metadata_file, 'w') as f:
-                    json.dump(clips_data, f, indent=2)
+            with open(metadata_file, 'w') as f:
+                json.dump(clips_data, f, indent=2)
 
     # Clean up original if requested
     if args.url and not args.keep_original and os.path.exists(input_video):

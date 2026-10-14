@@ -266,7 +266,8 @@ def perform_recut(*, input_path, segments, output_dir, clean_name,
                   reframe=False, output_format="auto", watermark=False,
                   captions_transcript=None, force_strategy=None,
                   crop_overrides=None, runner=None, renderer=None,
-                  watermarker=None, captioner=None, subtitle_band=None):
+                  watermarker=None, captioner=None, subtitle_band=None,
+                  editorial_config=None, editorial_transcript=None):
     """Render a recut clip. Returns (served_filename, clean_filename).
 
     - ``input_path``/``segments``: the file to cut from and the times ON THAT
@@ -321,6 +322,28 @@ def perform_recut(*, input_path, segments, output_dir, clean_name,
             layout_ranges.write(out_path, [
                 (r["start"], r["end"], r["layout"])
                 for r in layout_ranges.remap(layout_ranges.read(input_path), segments)])
+            import active_speaker
+            speakers = active_speaker.read_segments(input_path)
+            remapped = layout_ranges.remap([{'start':r['start'],'end':r['end'],'layout':str(r['speaker'])} for r in speakers],segments)
+            with open(out_path+'.speakers.json','w',encoding='utf-8') as f:
+                json.dump([{'start':r['start'],'end':r['end'],'speaker':int(r['layout'])} for r in remapped],f)
+
+        duration = total_duration(segments)
+        if editorial_config:
+            import editorial
+            if editorial.enabled(editorial_config):
+                burn_captions = bool(captions_transcript)
+                edited, edited_transcript, duration, timeline = editorial.assemble(
+                    out_path,editorial_config,editorial_transcript or captions_transcript or {},0.,duration)
+                captions_transcript = edited_transcript if burn_captions else None
+                shutil.move(edited,out_path)
+                if os.path.exists(edited+'.layout.json'):
+                    shutil.move(edited+'.layout.json',out_path+'.layout.json')
+                if os.path.exists(edited+'.speakers.json'):
+                    shutil.move(edited+'.speakers.json',out_path+'.speakers.json')
+                with open(out_path+'.editorial.json','w',encoding='utf-8') as f:
+                    json.dump({'editorial_transcript':edited_transcript,
+                               'editorial_timeline':timeline,'output_duration':duration},f)
 
         if watermark:
             (watermarker or _main_attr("apply_watermark"))(out_path)
@@ -329,7 +352,7 @@ def perform_recut(*, input_path, segments, output_dir, clean_name,
         if captions_transcript and captions_transcript.get("segments"):
             caption = captioner or _main_attr("auto_caption_clip")
             captioned = caption(out_path, captions_transcript,
-                                0.0, total_duration(segments))
+                                0.0, duration)
             if captioned:
                 served_name = os.path.basename(captioned)
         return served_name, out_name

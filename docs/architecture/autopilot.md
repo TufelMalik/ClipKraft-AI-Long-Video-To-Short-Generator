@@ -12,8 +12,8 @@ day. Paid plans only (it spends minutes unattended).
 - **Jobs go through the normal pipeline**: an in-process `POST /api/process`
   (`httpx.ASGITransport`, like the MCP server) authenticated with a freshly
   issued session JWT for the user. Metering, the probe, the per-plan job limit,
-  the quality gate and the download proxies apply unchanged. The per-job content
-  attestation is recorded once as `rights_ack_at`.
+  the quality gate and the download proxies apply unchanged. Processing starts
+  without a separate content confirmation.
 - **Guard rails**: only videos published after `enabled_at` (switching on never
   clips the back catalogue) and at most 3 days old; 1 automatic job per user per
   24 h; `max_minutes` per video (default 30, sent as the partial-clip

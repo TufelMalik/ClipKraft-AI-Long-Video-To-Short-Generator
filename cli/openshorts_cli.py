@@ -77,7 +77,7 @@ def _print_clips(result):
 
 
 def cmd_process(args):
-    body = {"url": args.url, "acknowledged": True}
+    body = {"url": args.url}
     if args.layouts:
         body["layouts"] = args.layouts
     if args.format:

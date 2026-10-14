@@ -21,6 +21,7 @@ const PLATFORM_OPTIONS = [
 ];
 
 function clipDurationSeconds(clip) {
+    if (Number.isFinite(clip.output_duration)) return clip.output_duration;
     // A recut clip's start/end are the covering source range (segments may be
     // non-contiguous or reordered); its real duration is the segment sum.
     const segments = clip.recipe?.segments;
@@ -37,6 +38,7 @@ function formatDuration(clip) {
 }
 
 export default function ResultCard({ clip, index, jobId, durable, uploadPostKey, uploadUserId, geminiApiKey, elevenLabsKey, isManaged, onPlay, onPause, onBulkSubtitle, clipCount = 1, bulkProgress, initialState = null, onStateChange, connectedPlatforms = null, onConnectSocials, onEditClip = null, onReframeClip = null, onUpgrade = null }) {
+    const apiIndex = clip.metadata_index ?? index;
     const [showModal, setShowModal] = useState(false);
     // The "why" line is clamped to two lines so cards in a row stay level;
     // when it overflows, a hover (desktop) or tap (touch) shows the whole
@@ -313,7 +315,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 },
                 body: JSON.stringify({
                     job_id: jobId,
-                    clip_index: index,
+                    clip_index: apiIndex,
                     input_filename: serverVideoFile
                 })
             });
@@ -345,7 +347,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 },
                 body: JSON.stringify({
                     job_id: jobId,
-                    clip_index: index,
+                    clip_index: apiIndex,
                     input_filename: serverVideoFile
                 })
             });
@@ -388,7 +390,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    job_id: jobId, clip_index: index, input_filename: serverVideoFile,
+                    job_id: jobId, clip_index: apiIndex, input_filename: serverVideoFile,
                 }),
             });
             if (!res.ok) throw new Error(await res.text());
@@ -450,7 +452,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     job_id: jobId,
-                    clip_index: index,
+                    clip_index: apiIndex,
                     position: options.position,
                     font_size: options.fontSize,
                     font_name: options.fontName,
@@ -539,7 +541,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     job_id: jobId,
-                    clip_index: index,
+                    clip_index: apiIndex,
                     text: payload.text,
                     position: payload.position,
                     size: payload.size,
@@ -577,7 +579,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     job_id: jobId,
-                    clip_index: index,
+                    clip_index: apiIndex,
                     remove: true,
                     input_filename: serverVideoFile,
                 }),
@@ -613,7 +615,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
             const requestBody = {
                 job_id: jobId,
-                clip_index: index,
+                clip_index: apiIndex,
                 target_language: options.targetLanguage,
                 input_filename: serverVideoFile
             };
@@ -694,7 +696,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
         try {
             const payload = {
                 job_id: jobId,
-                clip_index: index,
+                clip_index: apiIndex,
                 api_key: uploadPostKey,
                 user_id: uploadUserId,
                 platforms: selectedPlatforms,
@@ -861,6 +863,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                             )}
                         </div>
                     )}
+                    {clip.source_diversity?.warning && <p role="status" className="text-xs text-brass mb-2">{clip.source_diversity.warning}</p>}
                     <div className="flex flex-wrap gap-1.5">
                         {durationReadout && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{durationReadout}</span>}
                         {resolution && <span className="readout bg-paper3 px-2 py-0.5 rounded-full shrink-0">{resolution}</span>}
@@ -1173,7 +1176,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 isProcessing={isSubtitling || (bulkProgress?.running ?? false)}
                 videoUrl={originalVideoUrl}
                 jobId={jobId}
-                clipIndex={index}
+                clipIndex={apiIndex}
                 existingHook={activeLayers.hook}
             />
 

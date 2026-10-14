@@ -940,7 +940,7 @@ const automateShorts = () => ({
 <p>Start a job with one request:</p>
 <pre><code>curl -X POST https://api.openshorts.app/api/process \\
   -H "Authorization: Bearer osk_..." -H "Content-Type: application/json" \\
-  -d '{"url": "https://youtube.com/watch?v=...", "acknowledged": true,
+  -d '{"url": "https://youtube.com/watch?v=...",
        "webhook_url": "https://your-server.com/hooks/openshorts",
        "webhook_secret": "your-shared-secret"}'</code></pre>
 <p>The response returns a job id immediately. Minutes later, when the clips are
@@ -1263,7 +1263,7 @@ with the OpenAPI spec at <code>/openapi.json</code>. A processing job is one
 request:</p>
 <pre><code>curl -X POST https://api.openshorts.app/api/process \\
   -H "Authorization: Bearer osk_..." -H "Content-Type: application/json" \\
-  -d '{"url": "https://youtube.com/watch?v=...", "acknowledged": true,
+  -d '{"url": "https://youtube.com/watch?v=...",
        "webhook_url": "https://your-server.com/hooks/openshorts"}'</code></pre>
 
 <h2>Is there a CLI?</h2>

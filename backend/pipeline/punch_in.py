@@ -184,3 +184,35 @@ def emphasis_times(video_path, duration, window=BEAT_WINDOW,
             times.append(round(t, 3))
             last = t
     return times
+
+
+def word_emphasis(transcript,start,end,min_gap=4.):
+    """Numbers, named entities and high-impact claims on word timestamps."""
+    import re
+    from recut import transcript_words
+    times = []
+    triggers = {'never','mistake','secret','million','billion','first','only','risk','free'}
+    for word in transcript_words(transcript):
+        text = word['w'].strip('.,!?')
+        if start <= word['s'] < end and (re.search(r'\d',text) or text.lower() in triggers):
+            t = word['s']-start
+            if not times or t-times[-1]>=min_gap:
+                times.append(round(t,3))
+    return times
+
+
+def zoom_filter(times,start,duration,width,height,fps):
+    """A 0.5s 12% push with constant output dimensions (no filter reset)."""
+    import math
+    terms = []
+    for time in times:
+        if math.isfinite(time) and start-.5 <= time < start+duration:
+            local = time-start
+            terms.append(f'max(0,1-abs((in_time-{local+.25:.4f})/0.25))')
+    if not terms:
+        return f'scale={width}:{height}'
+    strength = terms[0]
+    for term in terms[1:]:
+        strength = f'max({strength},{term})'
+    return (f"zoompan=z='1+0.12*({strength})':d=1:fps={fps}:s={width}x{height}:"
+            "x='iw/2-iw/(2*zoom)':y='ih*0.35-ih*0.35/zoom'")

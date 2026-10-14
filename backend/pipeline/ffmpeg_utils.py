@@ -203,7 +203,32 @@ def video_encode_args(tier=QUALITY):
         print(f"🎞️ [Encoder] video encoder: {'h264_nvenc' if use_nvenc else 'libx264'} "
               f"(FFMPEG_ENCODER={mode})")
 
-    return list((_NVENC_ARGS if use_nvenc else _X264_ARGS)[tier])
+    args = list((_NVENC_ARGS if use_nvenc else _X264_ARGS)[tier])
+    if not use_nvenc:
+        # Auto threading allocates a large frame pool on high-core hosts.
+        # Several concurrent 1080p clips can exhaust Docker's memory.
+        args += ["-threads:v", str(ffmpeg_threads())]
+    return args
+
+
+def ffmpeg_threads():
+    """Bound per-process decoder, filter and CPU encoder thread pools."""
+    return max(1, int(os.environ.get("FFMPEG_THREADS", "2")))
+
+
+def ffmpeg_input_args():
+    """Place before the first input to limit decode and filter allocations."""
+    threads = str(ffmpeg_threads())
+    return ["-threads", threads, "-filter_threads", threads,
+            "-filter_complex_threads", threads]
+
+
+def clip_worker_count():
+    """Keep CPU renders bounded; retain the GPU host's measured concurrency."""
+    configured = os.environ.get("CLIP_WORKERS")
+    if configured is not None:
+        return max(1, int(configured))
+    return 6 if "h264_nvenc" in video_encode_args(QUALITY_FAST) else 2
 
 
 def blurred_backdrop(out_w, out_h, sigma):
@@ -292,6 +317,41 @@ def _gpu_cut_ok(input_video):
     return _gpu_cut_sources[input_video]
 
 
+def prepare_opencv_source(input_video, output_dir):
+    """Give OpenCV an H.264 working copy when its bundled AV1 decoder fails.
+
+    System FFmpeg has libdav1d even when OpenCV's bundled FFmpeg does not.
+    Preserve the original upload and audio; callers own the returned copy.
+    """
+    fmt = _source_format(input_video)
+    if not fmt or fmt[0] != "av1":
+        return input_video
+
+    import tempfile
+    fd, working_path = tempfile.mkstemp(prefix="source-compatible-", suffix=".mp4",
+                                      dir=output_dir)
+    os.close(fd)
+    print("🎞️ Preparing AV1 video for analysis with software decoding...", flush=True)
+    command = [
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        *ffmpeg_input_args(), "-hwaccel", "none", "-c:v", "libdav1d",
+        "-i", input_video, "-map", "0:v:0", "-map", "0:a?",
+        "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-c:v", "libx264",
+        "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+        "-threads:v", str(ffmpeg_threads()), "-c:a", "copy", working_path,
+    ]
+    try:
+        result = subprocess.run(command, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE, text=True, errors="replace")
+        if result.returncode or os.path.getsize(working_path) < MIN_CUT_BYTES:
+            raise RuntimeError("AV1 software decoding failed: " + (result.stderr or "")[-800:])
+        print("✅ Video prepared for analysis.", flush=True)
+        return working_path
+    except BaseException:
+        os.remove(working_path)
+        raise
+
+
 def cut_clip(input_video, clip_temp_path, start, end, clip_number):
     """Cut [start, end] out of the source into ``clip_temp_path``.
 
@@ -313,6 +373,7 @@ def cut_clip(input_video, clip_temp_path, start, end, clip_number):
     encode_args = video_encode_args(QUALITY_FAST)
     command = [
         'ffmpeg', '-y',
+        *ffmpeg_input_args(),
         '-ss', str(start),
         '-to', str(end),
         '-i', input_video,

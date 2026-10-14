@@ -431,9 +431,6 @@ async def _submit(user_id, email, run_id, video_url: str, max_minutes: int) -> d
     base = os.environ.get("PUBLIC_API_URL", "").rstrip("/") or "http://localhost"
     body = {
         "url": video_url,
-        # Recorded once when the user switched Autopilot on for their own
-        # channel (rights_ack_at); the pipeline wants it per job.
-        "acknowledged": True,
         "max_minutes": max_minutes,
         "auto_hook": "1",
     }
@@ -664,7 +661,6 @@ async def _publish(run_id, profile, items, platforms, prefs):
 # --------------------------------------------------------------------------- #
 class AutopilotUpdate(BaseModel):
     enabled: Optional[bool] = None
-    rights_ack: Optional[bool] = None
     autopublish: Optional[bool] = None
     publish_platforms: Optional[List[str]] = None
     clips_to_publish: Optional[int] = None
@@ -681,7 +677,6 @@ def _settings_view(prefs: Optional[AutopilotSettings]) -> dict:
     return {
         "enabled": bool(prefs and prefs.enabled),
         "enabled_at": prefs.enabled_at.isoformat() if prefs and prefs.enabled_at else None,
-        "rights_ack": bool(prefs and prefs.rights_ack_at),
         "autopublish": bool(prefs and prefs.autopublish),
         "publish_platforms": clean_platforms(prefs.publish_platforms) if prefs else [],
         "clips_to_publish": (prefs.clips_to_publish if prefs else None) or DEFAULT_CLIPS_TO_PUBLISH,
@@ -766,11 +761,6 @@ async def put_autopilot(payload: AutopilotUpdate, request: Request):
                                           max_minutes=DEFAULT_MAX_MINUTES,
                                           publish_hour=DEFAULT_PUBLISH_HOUR)
                 s.add(prefs)
-            # Connecting the channel through YouTube's own OAuth already proves it
-            # is theirs, so switching Autopilot on records the attestation
-            # instead of asking for a checkbox.
-            if payload.rights_ack or turning_on:
-                prefs.rights_ack_at = prefs.rights_ack_at or datetime.now(timezone.utc)
             if turning_on:
                 if not prefs.enabled:
                     # New baseline: only videos published from now on.

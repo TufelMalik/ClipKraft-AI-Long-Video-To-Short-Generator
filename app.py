@@ -154,7 +154,7 @@ JOB_RETENTION_SECONDS = int(
 # reframe, scenes and EDL endpoints all read that file and answer 409 once it
 # is gone. Lower it only if you would rather lose in-session re-edits than
 # keep the original around. Uploads are deliberately untouched: that file is
-# the user's own content, which they attested to owning.
+# the user's uploaded source.
 SOURCE_RETENTION_SECONDS = int(
     os.environ.get("SOURCE_RETENTION_SECONDS", str(JOB_RETENTION_SECONDS))
 )
@@ -725,6 +725,7 @@ def _canonical_clip_file(output_dir, base_name, index):
         derived = (glob.glob(os.path.join(output_dir, f"subtitled_*_{clean}"))
                    + glob.glob(os.path.join(output_dir, f"recut_*_{clean}"))
                    + glob.glob(os.path.join(output_dir, f"hooked_*_{clean}"))
+                   + glob.glob(os.path.join(output_dir, f"edited_*_{clean}"))
                    + glob.glob(os.path.join(output_dir, f"hook_{clean}"))
                    + glob.glob(os.path.join(output_dir, f"wm_*{clean}")))
     except Exception:
@@ -763,7 +764,10 @@ def _clips_actually_rendered(job_id, output_dir, base_name, clips):
     ready_files = (jobs.get(job_id) or {}).get('ready_files') or {}
     kept = []
     for i, clip in enumerate(clips):
+        if clip.get('export_status') == 'failed' or (clip.get('export_status')=='pending' and i not in ready_files):
+            continue
         clip_filename = (ready_files.get(i)
+                         or clip.get('rendered_file')
                          or _canonical_clip_file(output_dir, base_name, i))
         clip_path = os.path.join(output_dir, clip_filename)
         try:
@@ -775,8 +779,17 @@ def _clips_actually_rendered(job_id, output_dir, base_name, clips):
                   f"({clip_filename}) — dropping it from the result.")
             continue
         clip['video_url'] = f"/videos/{job_id}/{clip_filename}"
+        clip['metadata_index'] = i
         kept.append(clip)
     return kept, len(clips) - len(kept)
+
+
+def _memory_clip(job,index,required=True):
+    clips = (((job or {}).get('result') or {}).get('clips') or [])
+    clip = next((c for i,c in enumerate(clips) if c.get('metadata_index',i)==index),None)
+    if clip is None and required:
+        raise HTTPException(status_code=404,detail='Clip not found')
+    return clip
 
 
 def _strip_watermark_copy(output_dir, filename):
@@ -870,9 +883,9 @@ def _unmark_local_job(job_id, clip_index, clean_filename):
     job_dir = os.path.join(OUTPUT_DIR, job_id)
     url = f"/videos/{job_id}/{clean_filename}"
     job = jobs.get(job_id)
-    mem_clips = ((job or {}).get('result') or {}).get('clips') or []
-    if clip_index < len(mem_clips):
-        mem_clips[clip_index]['video_url'] = url
+    mem_clip = _memory_clip(job,clip_index,False)
+    if mem_clip is not None:
+        mem_clip['video_url'] = url
     ready = (job or {}).get('ready_files')
     if isinstance(ready, dict) and clip_index in ready:
         ready[clip_index] = clean_filename
@@ -927,6 +940,9 @@ def _reapply_captions(job_id, clip_index, video_path):
             start, end = 0.0, recut.total_duration(recipe_segments)
         else:
             start, end = clip['start'], clip['end']
+        if clip.get('editorial_transcript'):
+            transcript = clip['editorial_transcript']
+            start, end = 0., clip.get('output_duration',end-start)
         if clip.get('caption_words'):
             transcript = _words_transcript(clip['caption_words'],
                                            transcript.get('language', 'en'))
@@ -991,6 +1007,12 @@ def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
             bg_opacity=s["bg_opacity"], effect=s["effect"],
             base_opacity=s["base_opacity"], uppercase=s["uppercase"],
             reveal=s["reveal"], shadow=s["shadow"])
+        import caption_safe
+        opts['placement_ranges'] = caption_safe.placement_ranges(video_path,layout_ranges.read(video_path),end-start)
+        if (style or {}).get('speaker_colors'):
+            import active_speaker
+            opts['speaker_ranges'] = [(r['start'],r['end'],'#FFFFFF' if r['speaker']==0 else '#FFE500')
+                                      for r in active_speaker.read_segments(video_path)]
         if max_chars is not None:
             opts["max_chars"] = max_chars
         if max_duration is not None:
@@ -1073,6 +1095,7 @@ def _recover_jobs_from_disk():
                 data = json.load(f)
             base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
             clips = data.get('shorts', [])
+            clips,_ = _clips_actually_rendered(job_id,job_path,base_name,clips)
             for i, clip in enumerate(clips):
                 if not clip.get('video_url'):
                     clip['video_url'] = (
@@ -1085,7 +1108,7 @@ def _recover_jobs_from_disk():
                     raw = f.read().strip()
                 owner = int(raw) if raw.isdigit() else (raw or None)
             jobs[job_id] = {
-                'status': 'completed',
+                'status': 'completed' if clips else 'failed',
                 'logs': _TimedLog(["♻️ Job recovered from disk after server restart."]),
                 'output_dir': job_path,
                 'user_id': owner,
@@ -3037,6 +3060,36 @@ def _take_pending_upload(upload_id, user_id):
     return slot
 
 
+@app.get('/api/channel-profiles')
+async def get_channel_profiles():
+    if BILLING_ENABLED:
+        return {'channels':[], 'available':False}
+    import channel_safety
+    return {**channel_safety.load_profiles(),'available':True,'required':False}
+
+
+@app.put('/api/channel-profiles')
+async def save_channel_profiles(request: Request):
+    if BILLING_ENABLED:
+        raise HTTPException(status_code=403,detail='Channel profiles are available in self-host mode')
+    import channel_safety
+    try:
+        data = channel_safety.validate_profiles(await request.json())
+    except (ValueError,TypeError) as exc:
+        raise HTTPException(status_code=400,detail=str(exc))
+    path = channel_safety.config_path()
+    os.makedirs(os.path.dirname(os.path.abspath(path)),exist_ok=True)
+    temporary = path+'.'+uuid.uuid4().hex+'.tmp'
+    try:
+        with open(temporary,'w',encoding='utf-8') as f:
+            json.dump(data,f,indent=2)
+        os.replace(temporary,path)
+    finally:
+        if os.path.isfile(temporary):
+            os.remove(temporary)
+    return {'success':True,'channels':data['channels']}
+
+
 def layout_env(requested):
     """Env overrides for the layouts this job allows. Unknown names are ignored
     rather than rejected: a newer dashboard must not break an older API.
@@ -3056,6 +3109,7 @@ def layout_env(requested):
             continue
         if key == "none":
             env["AUTO_LAYOUT"] = "0"
+            env.update({'SPLIT_LAYOUT':'0','SPEAKER_SIGNAL':'0','SPEAKER_CUT':'0'})
             continue
         var = LAYOUT_ENV.get(key)
         if not var:
@@ -3071,7 +3125,6 @@ async def process_endpoint(
     request: Request,
     file: Optional[UploadFile] = File(None),
     url: Optional[str] = Form(None),
-    acknowledged: Optional[str] = Form(None),
     output_format: Optional[str] = Form(None),
     layouts: Optional[str] = Form(None),
     force_low_quality: Optional[str] = Form(None),
@@ -3086,7 +3139,14 @@ async def process_endpoint(
     captions: Optional[str] = Form(None),
     upload_id: Optional[str] = Form(None),
     max_minutes: Optional[str] = Form(None),
+    editorial: Optional[str] = Form(None),
+    intro_audio: Optional[UploadFile] = File(None),
+    outro_audio: Optional[UploadFile] = File(None),
+    channel_id: Optional[str] = Form(None),
+    source_creator_id: Optional[str] = Form(None),
+    niche: Optional[str] = Form(None),
 ):
+    import editorial as editorial_module
     api_key = await resolve_gemini(request)
     if not api_key and not (llm_backend.active() and not BILLING_ENABLED):
         # Self-host with an OpenAI-compatible server configured needs no
@@ -3095,7 +3155,6 @@ async def process_endpoint(
         # "none", silent videos fail with a message that says why).
         raise gemini_missing_error()
 
-    ack_flag = str(acknowledged).lower() in ("1", "true", "yes")
     # May be lowered by the paid-proxy budget check in the metering block
     # below; self-host never runs that block, so it must default here.
     paid_allowed = True
@@ -3106,7 +3165,6 @@ async def process_endpoint(
     if "application/json" in content_type:
         body = await request.json()
         url = body.get("url")
-        ack_flag = bool(body.get("acknowledged"))
         force_low = bool(body.get("force_low_quality"))
         output_format = body.get("output_format")
         layouts = body.get("layouts")
@@ -3121,6 +3179,25 @@ async def process_endpoint(
         captions = body.get("captions")
         upload_id = body.get("upload_id")
         max_minutes = body.get("max_minutes")
+        editorial = body.get('editorial')
+        channel_id,source_creator_id,niche = body.get('channel_id'),body.get('source_creator_id'),body.get('niche')
+
+    try:
+        raw_editorial = json.loads(editorial) if isinstance(editorial,str) else editorial
+        editorial_config = editorial_module.normalize_config(raw_editorial) if raw_editorial else {}
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=f'Invalid editorial settings: {exc}')
+    import channel_safety
+    if channel_id:
+        if BILLING_ENABLED:
+            raise HTTPException(status_code=400,detail='Channel profiles are available in self-host mode')
+        try:
+            selected_channel = channel_safety.select_channel(channel_safety.load_profiles(),channel_id,niche)
+            editorial_config['niche'] = selected_channel['niche']
+            if not editorial_config.get('channel_name'):
+                editorial_config['channel_name'] = selected_channel.get('name') or channel_id
+        except channel_safety.SafetyError as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
 
     # Normalize output format (auto = keep pipeline default).
     if output_format not in ("vertical", "horizontal", "square"):
@@ -3163,9 +3240,6 @@ async def process_endpoint(
         except UnsafeURLError as e:
             raise HTTPException(status_code=400, detail=f"Invalid webhook_url: {e}")
 
-    if not ack_flag:
-        raise HTTPException(status_code=400, detail="You must confirm you own the content or have rights to process it.")
-
     if url and DISABLE_YOUTUBE_URL:
         raise HTTPException(status_code=403, detail="YouTube URL ingest is disabled on this deployment. Please upload a file you own.")
 
@@ -3175,24 +3249,28 @@ async def process_endpoint(
     if url:
         await _validate_source_url(url)
 
-    # Capture attestation context for legal record (IP + timestamp + UA)
-    client_ip = request.client.host if request.client else "unknown"
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        client_ip = fwd.split(",")[0].strip()
-    user_agent = request.headers.get("user-agent", "")
-    attestation = {
-        "acknowledged": True,
-        "ip": client_ip,
-        "user_agent": user_agent,
-        "timestamp": time.time(),
-        "source": ("thumbnail_session" if thumb_session else "upload_id" if upload_slot
-                   else "url" if url else "file"),
-    }
-
     job_id = str(uuid.uuid4())
     job_output_dir = os.path.join(OUTPUT_DIR, job_id)
     os.makedirs(job_output_dir, exist_ok=True)
+    for kind, audio in [('intro', intro_audio), ('outro', outro_audio)]:
+        if audio:
+            audio_path = os.path.join(job_output_dir, f'commentary_{kind}.bin')
+            size = 0
+            try:
+                with open(audio_path,'wb') as target:
+                    while chunk := await audio.read(1024*1024):
+                        size += len(chunk)
+                        if size > 20*1024*1024:
+                            raise ValueError('Commentary upload must be 20 MB or smaller')
+                        target.write(chunk)
+                info = await asyncio.to_thread(editorial_module.media_info, audio_path)
+                if not info['audio'] or not .5 <= info['duration'] <= 15:
+                    raise ValueError('Commentary must contain audio and last 0.5–15 seconds')
+                editorial_config[f'{kind}_audio'] = audio_path
+            except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                if os.path.isfile(audio_path):
+                    os.remove(audio_path)
+                raise HTTPException(status_code=400,detail=str(exc))
 
     # Prepare Command
     # sys.executable, not "python": bare "python" resolves against PATH, which
@@ -3201,6 +3279,22 @@ async def process_endpoint(
     # probe above already gets this right.
     cmd = [sys.executable, "-u", "main.py"] # -u for unbuffered
     env = child_env()
+    env['RELEASE_V2'] = '1'
+    env['AUTO_CAPTION_PRESET'] = editorial_config.get('caption_preset','default')
+    for option,key in [('reaction_shots','REACTION_SHOTS'),('zoom_punches','PUNCH_IN'),('speaker_colors','AUTO_SPEAKER_COLORS')]:
+        env[key] = '1' if editorial_config.get(option) else '0'
+    for key,value in [('CHANNEL_ID',channel_id),('SOURCE_CREATOR_ID',source_creator_id),('CLIP_NICHE',niche)]:
+        if value:
+            env[key] = value
+        else:
+            env.pop(key,None)
+    if editorial_config:
+        editorial_path = os.path.join(job_output_dir,'editorial-settings.json')
+        with open(editorial_path,'w',encoding='utf-8') as f:
+            json.dump(editorial_config,f)
+        env['EDITORIAL_CONFIG_PATH'] = editorial_path
+    else:
+        env.pop('EDITORIAL_CONFIG_PATH',None)
     if not paid_allowed:
         # Daily paid-proxy budget hit: this job runs on the free routes only.
         env.pop("PROXY_URL", None)
@@ -3346,8 +3440,6 @@ async def process_endpoint(
     if output_format and output_format != "auto":
         cmd.extend(["--format", output_format])
 
-    print(f"[attestation] job={job_id} ip={attestation['ip']} source={attestation['source']} ack=true")
-
     # Meter + reserve minutes for managed users (no-op for BYOK / self-host).
     user_id, priority, reservation_id, user_plan, partial = await reserve_process_minutes(
         request, url, input_path, job_id, max_minutes=max_minutes)
@@ -3406,7 +3498,6 @@ async def process_endpoint(
         'cmd': cmd,
         'env': env,
         'output_dir': job_output_dir,
-        'attestation': attestation,
         'user_id': user_id,
         'reservation_id': reservation_id,
         'watermark': env.get("WATERMARK") == "1",
@@ -3647,9 +3738,12 @@ async def download_all_clips(job_id: str, request: Request):
 
     files = []
     for i, clip in enumerate(data.get('shorts', [])):
+        if clip.get('export_status')=='failed':
+            continue
         url = None
-        if i < len(mem_clips):
-            url = (mem_clips[i] or {}).get('video_url')
+        memory_clip = _memory_clip(jobs.get(job_id),i,False)
+        if memory_clip is not None:
+            url = memory_clip.get('video_url')
         url = url or clip.get('video_url')
         filename = (os.path.basename(url.split('/')[-1]) if url
                     else _canonical_clip_file(output_dir, base_name, i))
@@ -3915,7 +4009,7 @@ async def edit_clip(
             filename = safe_name
         else:
             # Fallback to original clip
-            clip = job['result']['clips'][req.clip_index]
+            clip = _memory_clip(job,req.clip_index)
             filename = clip['video_url'].split('/')[-1]
             input_path = os.path.join(OUTPUT_DIR, req.job_id, filename)
         
@@ -4017,8 +4111,9 @@ async def edit_clip(
 
         # Persist the new current file like /api/subtitle does: in-memory job
         # result + metadata.json, so reload/recovery/re-archive see this version.
-        if req.clip_index < len(job['result']['clips']):
-            job['result']['clips'][req.clip_index]['video_url'] = new_video_url
+        mem_clip = _memory_clip(job,req.clip_index,False)
+        if mem_clip is not None:
+            mem_clip['video_url'] = new_video_url
         try:
             meta_files = glob.glob(os.path.join(OUTPUT_DIR, req.job_id, "*_metadata.json"))
             if meta_files:
@@ -4126,6 +4221,10 @@ async def get_clip_transcript(job_id: str, clip_index: int, request: Request):
         clip_start = clip_data.get('start', 0)
         clip_end = clip_data.get('end', 0)
 
+    if clip_data.get('editorial_transcript'):
+        transcript = clip_data['editorial_transcript']
+        clip_start,clip_end = 0.,clip_data.get('output_duration',clip_end-clip_start)
+
     # Extract words within clip range and convert to CaptionWord format
     captions = []
     for segment in transcript.get('segments', []):
@@ -4229,12 +4328,21 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
     if not current_file:
         base_name = os.path.basename(json_files[0]).replace('_metadata.json', '')
         current_file = _canonical_clip_file(output_dir, base_name, clip_index)
+    if clip.get('editorial_timeline'):
+        # The assembly monitor follows source segments, so show its clean body
+        # while editing. Intros/outros are reassembled at export/save.
+        base_name = os.path.basename(json_files[0]).replace('_metadata.json','')
+        body_file = f'{base_name}_clip_{clip_index+1}.mp4'
+        if os.path.isfile(os.path.join(output_dir,body_file)):
+            current_file = body_file
 
     total = recut.total_duration(segments)
     return {
         "job_id": job_id,
         "clip_index": clip_index,
         "title": clip.get('video_title_for_youtube_short') or '',
+        'broll_points':clip.get('broll_points',[]),
+        'output_duration':clip.get('output_duration',total),
         "segments": segments,
         "framing": (clip.get('recipe') or {}).get('framing') or 'auto',
         "canonical_range": canonical_range,
@@ -4262,6 +4370,51 @@ async def get_clip_edl(job_id: str, clip_index: int, request: Request):
 class RerenderSegment(BaseModel):
     start: float
     end: float
+
+
+class BrollRequest(BaseModel):
+    job_id: str
+    clip_index: int
+    points: List[Dict[str,Any]]
+
+
+@app.post('/api/clip/broll')
+async def save_broll_notes(req: BrollRequest, request: Request):
+    await _ensure_job_files(req.job_id,request)
+    job = jobs.get(req.job_id)
+    if not job:
+        raise HTTPException(status_code=404,detail='Job not found')
+    await _assert_job_owner(request,job)
+    async with _rerender_locks.setdefault(req.job_id,asyncio.Lock()):
+        paths = glob.glob(os.path.join(OUTPUT_DIR,req.job_id,'*_metadata.json'))
+        if not paths:
+            raise HTTPException(status_code=404,detail='Metadata not found')
+        with open(paths[0],encoding='utf-8') as f:
+            data = json.load(f)
+        clips = data.get('shorts',[])
+        if not 0<=req.clip_index<len(clips):
+            raise HTTPException(status_code=404,detail='Clip not found')
+        clip = clips[req.clip_index]
+        duration = clip.get('output_duration') or recut.total_duration(_clip_recipe_parts(clip)[0])
+        if len(req.points)>24:
+            raise HTTPException(status_code=400,detail='At most 24 B-roll notes are supported')
+        points = []
+        try:
+            for point in req.points:
+                start,end = float(point['start']),float(point['end'])
+                label = str(point.get('label',''))
+                if not math.isfinite(start) or not math.isfinite(end) or start<0 or end>duration or not .5<=end-start<=3. or len(label)>120:
+                    raise ValueError('B-roll notes must be 0.5–3 seconds within the exported video, with labels up to 120 characters')
+                points.append({'start':round(start,3),'end':round(end,3),'label':label})
+        except (KeyError,ValueError,TypeError) as exc:
+            raise HTTPException(status_code=400,detail=str(exc))
+        clip['broll_points'] = points
+        with open(paths[0],'w',encoding='utf-8') as f:
+            json.dump(data,f,indent=2)
+        memory = _memory_clip(job,req.clip_index,False)
+        if memory is not None:
+            memory['broll_points'] = points
+        return {'success':True,'points':points}
 
 
 class RerenderRequest(BaseModel):
@@ -4382,6 +4535,8 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
                     "framing needs it." if force_strategy is not None else
                     "The source video is no longer on the server, so segments "
                     "must stay within the original clip range."))
+    if clip.get('channel_id') and not source_path:
+        raise HTTPException(status_code=409,detail='Channel-safe edits require the retained source for duplicate checks')
 
     total = recut.total_duration(segments)
     rerender_minutes = (max(1, math.ceil(total / 60.0))
@@ -4393,6 +4548,9 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
                     if req.reapply_captions else None)
 
     def run_recut():
+        if clip.get('channel_id'):
+            import channel_safety
+            channel_safety.select_channel(channel_safety.load_profiles(),clip['channel_id'],clip.get('niche'))
         if fast:
             return recut.perform_recut(
                 input_path=canonical_path,
@@ -4400,11 +4558,15 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
                     segments, canonical_range['start'], canonical_range['end']),
                 output_dir=output_dir, clean_name=clean_name,
                 reframe=False, captions_transcript=v_transcript,
+                editorial_config=data.get('editorial_settings'),
+                editorial_transcript=recut.virtual_transcript(transcript,segments),
                 captioner=_recut_captioner(clip))
         return recut.perform_recut(
             input_path=source_path, segments=segments,
             output_dir=output_dir, clean_name=clean_name,
             reframe=True, output_format=data.get('output_format', 'auto'),
+            editorial_config=data.get('editorial_settings'),
+            editorial_transcript=recut.virtual_transcript(transcript,segments),
             force_strategy=force_strategy,
             captions_transcript=v_transcript,
             captioner=_recut_captioner(clip),
@@ -4415,6 +4577,19 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
     try:
         loop = asyncio.get_event_loop()
         served_name, _clean_recut_name = await loop.run_in_executor(None, run_recut)
+        diversity = None
+        if clip.get('channel_id'):
+            def check_revision():
+                import channel_safety
+                import tempfile
+                with tempfile.TemporaryDirectory(prefix='safety_',dir=output_dir) as work:
+                    raw = os.path.join(work,'source-cut.mp4')
+                    recut.run_cut_concat(source_path,segments,raw,work)
+                    return channel_safety.ledger().claim(
+                        f'{req.job_id}:{req.clip_index}:{_clean_recut_name}',clip['channel_id'],
+                        clip.get('source_creator_id'),channel_safety.fingerprint(raw),
+                        revision_of=f'{req.job_id}:{req.clip_index}')
+            diversity = await asyncio.to_thread(check_revision)
         served_name = await _deliver(request, req.job_id, served_name)
 
         new_video_url = f"/videos/{req.job_id}/{served_name}"
@@ -4434,12 +4609,20 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
                    # path, which never reframes): captions follow them.
                    'layout_ranges': layout_ranges.read(
                        os.path.join(output_dir, _clean_recut_name))}
+        editorial_sidecar = os.path.join(output_dir,_clean_recut_name)+'.editorial.json'
+        if os.path.isfile(editorial_sidecar):
+            with open(editorial_sidecar,encoding='utf-8') as f:
+                updates.update(json.load(f))
+        if diversity is not None:
+            updates['source_diversity'] = diversity
         # Per-scene manual framing is keyed by scene indices of a specific cut;
         # this render neither applied it nor can it survive a changed cut, so
         # clear it rather than let /scenes serve stale overrides against the
         # wrong shots (re-frame after trimming to re-apply by hand).
         if clip.get('crop_overrides'):
             updates['crop_overrides'] = None
+        if segments != _clip_recipe_parts(clip)[0]:
+            updates['broll_points'] = []
         # Edited caption words are timed against the previous cut; the new one
         # captions from the transcript (in the recorded style, if any).
         if clip.get('caption_words'):
@@ -4448,9 +4631,9 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
         data['shorts'] = clips
         with open(json_files[0], 'w') as f:
             json.dump(data, f, indent=2)
-        mem_clips = (job.get('result') or {}).get('clips') or []
-        if req.clip_index < len(mem_clips):
-            mem_clips[req.clip_index].update(updates)
+        memory = _memory_clip(job,req.clip_index,False)
+        if memory is not None:
+            memory.update(updates)
 
         _archive_clip_edit_bg(req.job_id, req.clip_index, served_name)
         if reservation_id:
@@ -4462,13 +4645,17 @@ async def _rerender_locked(req: RerenderRequest, request: Request, job):
             "framing": framing,
             "start": new_start,
             "end": new_end,
-            "duration": total,
+            "duration":updates.get('output_duration',total),
+            'broll_points':clip.get('broll_points',[]),
             "render_path": "fast" if fast else "source",
         }
     except Exception as e:
         if reservation_id:
             await _metering.release_reservation(reservation_id)
         print(f"❌ Rerender Error: {e}")
+        import channel_safety
+        if isinstance(e,channel_safety.SafetyError):
+            raise HTTPException(status_code=409,detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4769,12 +4956,17 @@ async def _reframe_locked(req: ReframeRequest, request: Request, job, overrides)
     clean_name = f"{base_name}_clip_{req.clip_index + 1}.mp4"
 
     def run():
+        if clip.get('channel_id'):
+            import channel_safety
+            channel_safety.select_channel(channel_safety.load_profiles(),clip['channel_id'],clip.get('niche'))
         return recut.perform_recut(
             input_path=source_path, segments=segments,
             output_dir=output_dir, clean_name=clean_name,
             reframe=True, output_format=data.get('output_format', 'auto'),
             force_strategy=force_strategy,
             crop_overrides=overrides,
+            editorial_config=data.get('editorial_settings'),
+            editorial_transcript=recut.virtual_transcript(data.get('transcript') or {},segments),
             captions_transcript=v_transcript,
             captioner=_recut_captioner(clip),
             # Trim the source's own subtitles only when ours go back on.
@@ -4797,13 +4989,17 @@ async def _reframe_locked(req: ReframeRequest, request: Request, job, overrides)
             'crop_overrides': {str(k): v for k, v in overrides.items()},
             'layout_ranges': layout_ranges.read(os.path.join(output_dir, _clean)),
         }
+        sidecar = os.path.join(output_dir,_clean)+'.editorial.json'
+        if os.path.isfile(sidecar):
+            with open(sidecar,encoding='utf-8') as f:
+                updates.update(json.load(f))
         clip.update(updates)
         data['shorts'] = clips
         with open(json_files[0], 'w') as f:
             json.dump(data, f, indent=2)
-        mem_clips = (job.get('result') or {}).get('clips') or []
-        if req.clip_index < len(mem_clips):
-            mem_clips[req.clip_index].update(updates)
+        memory = _memory_clip(job,req.clip_index,False)
+        if memory is not None:
+            memory.update(updates)
 
         _archive_clip_edit_bg(req.job_id, req.clip_index, served_name)
         if reservation_id:
@@ -4818,6 +5014,8 @@ async def _reframe_locked(req: ReframeRequest, request: Request, job, overrides)
             "start": min(s['start'] for s in segments),
             "end": max(s['end'] for s in segments),
             "framed_scenes": sorted(overrides),
+            'duration':updates.get('output_duration',total),
+            'broll_points':clip.get('broll_points',[]),
         }
     except Exception as e:
         if reservation_id:
@@ -4911,7 +5109,7 @@ async def generate_effects_config(
             safe_name = os.path.basename(req.input_filename)
             input_path = os.path.join(OUTPUT_DIR, req.job_id, safe_name)
         else:
-            clip = job['result']['clips'][req.clip_index]
+            clip = _memory_clip(job,req.clip_index)
             filename = clip['video_url'].split('/')[-1]
             input_path = os.path.join(OUTPUT_DIR, req.job_id, filename)
 
@@ -5048,6 +5246,10 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
         sub_transcript = transcript
         sub_start = clip_data.get('start', 0)
         sub_end = clip_data.get('end', 0)
+
+    if clip_data.get('editorial_transcript'):
+        sub_transcript = clip_data['editorial_transcript']
+        sub_start,sub_end = 0.,clip_data.get('output_duration',sub_end-sub_start)
 
     # User-edited captions win over both: build a synthetic clip-relative
     # transcript from them so the SRT/ASS generators burn the edited words
@@ -5191,8 +5393,9 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
 
     # 3. Update Result and Metadata
     # Update InMemory Jobs
-    if req.clip_index < len(job['result']['clips']):
-         job['result']['clips'][req.clip_index]['video_url'] = f"/videos/{req.job_id}/{output_filename}"
+    memory = _memory_clip(job,req.clip_index,False)
+    if memory is not None:
+         memory['video_url'] = f"/videos/{req.job_id}/{output_filename}"
     
     # Update Metadata on Disk (Persistence)
     try:
@@ -5273,7 +5476,7 @@ async def remove_subtitles(req: RemoveSubtitlesRequest, request: Request):
     filename = await _deliver(request, req.job_id, filename)
     new_url = f"/videos/{req.job_id}/{filename}"
     if req.clip_index < len(job.get('result', {}).get('clips', [])):
-        job['result']['clips'][req.clip_index]['video_url'] = new_url
+        _memory_clip(job,req.clip_index)['video_url'] = new_url
     try:
         clips[req.clip_index]['video_url'] = new_url
         data['shorts'] = clips
@@ -5412,8 +5615,8 @@ async def add_hook(req: HookRequest, request: Request):
 
     # Update Persistence (Same logic as subtitles)
     # Update InMemory Jobs
-    if req.clip_index < len(job['result']['clips']):
-        mem_clip = job['result']['clips'][req.clip_index]
+    mem_clip = _memory_clip(job,req.clip_index,False)
+    if mem_clip is not None:
         mem_clip['video_url'] = f"/videos/{req.job_id}/{output_filename}"
         if req.remove:
             mem_clip.pop('auto_hook', None)
@@ -5528,8 +5731,9 @@ async def translate_clip(
     output_filename = await _deliver(request, req.job_id, output_filename)
 
     # Update InMemory Jobs
-    if req.clip_index < len(job['result']['clips']):
-         job['result']['clips'][req.clip_index]['video_url'] = f"/videos/{req.job_id}/{output_filename}"
+    memory = _memory_clip(job,req.clip_index,False)
+    if memory is not None:
+         memory['video_url'] = f"/videos/{req.job_id}/{output_filename}"
 
     # Update Metadata on Disk
     try:
@@ -5560,6 +5764,7 @@ class SocialPostRequest(BaseModel):
     description: Optional[str] = None
     scheduled_date: Optional[str] = None # ISO-8601 string
     timezone: Optional[str] = "UTC"
+    channel_id: Optional[str] = None
 
 import httpx
 
@@ -5592,7 +5797,20 @@ async def post_to_socials(req: SocialPostRequest, request: Request):
         raise HTTPException(status_code=400, detail="Job result not available")
 
     try:
-        clip = job['result']['clips'][req.clip_index]
+        clip = _memory_clip(job,req.clip_index)
+        if clip.get('channel_id'):
+            import channel_safety
+            selected_channel = req.channel_id or clip['channel_id']
+            if selected_channel != clip['channel_id']:
+                raise HTTPException(status_code=409,detail='This clip is assigned to another channel; duplicate cross-posting is blocked')
+            try:
+                channel = channel_safety.select_channel(channel_safety.load_profiles(),selected_channel,clip.get('niche'))
+                if not channel.get('publish_profile'):
+                    raise HTTPException(status_code=409,detail='Set this channel\'s publish_profile before posting')
+                if channel['publish_profile'] != post_user:
+                    raise HTTPException(status_code=409,detail='The publishing profile does not match this clip\'s channel')
+            except channel_safety.SafetyError as exc:
+                raise HTTPException(status_code=409,detail=str(exc))
         # Video URL is relative /videos/..., we need absolute file path
         # clip['video_url'] is like "/videos/{job_id}/{filename}"
         # We constructed it as: f"/videos/{job_id}/{clip_filename}"
@@ -5660,6 +5878,8 @@ async def post_to_socials(req: SocialPostRequest, request: Request):
 
         return response.json()
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Social Post Exception: {e}")
         raise HTTPException(status_code=500, detail=str(e))

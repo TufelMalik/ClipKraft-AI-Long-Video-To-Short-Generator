@@ -18,6 +18,7 @@ Pure helpers (sendcmd/concat generation, scene slicing) have no heavy imports
 so they stay unit-testable in CI.
 """
 import os
+import json
 import subprocess
 import tempfile
 
@@ -27,7 +28,9 @@ import punch_in
 import screencast_layout
 import layout_ranges
 import split_layout
-from ffmpeg_utils import (video_encode_args, blurred_backdrop, escape_filter_value,
+import subject_framing
+from ffmpeg_utils import (video_encode_args, audio_encode_args, blurred_backdrop, escape_filter_value,
+                          ffmpeg_input_args,
                           QUALITY_FAST, METADATA_SCRUB)
 
 ANALYSIS_MAX_WIDTH = 640
@@ -251,7 +254,7 @@ def apply_crop_overrides(xs, strategies, scene_boundaries, overrides,
 
 
 def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
-                        fps, orig_w, orig_h, cameraman, tracker):
+                        fps, orig_w, orig_h, cameraman, tracker, body_boxes=None):
     """Replays v1's per-frame decision loop on a downscaled ffmpeg-decoded
     stream. Returns xs: crop x per frame (None on GENERAL frames)."""
     import numpy as np
@@ -267,7 +270,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
     frame_bytes = small_w * small_h * 3
 
     proc = subprocess.Popen(
-        ["ffmpeg", "-loglevel", "error", "-i", input_video,
+        ["ffmpeg", "-loglevel", "error", *ffmpeg_input_args(), "-i", input_video,
          "-vf", f"scale={small_w}:{small_h}",
          "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=frame_bytes * 4)
@@ -275,6 +278,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
     xs = []
     frame_number = 0
     current_scene_index = 0
+    body_camera = subject_framing.BodyCamera(orig_w, orig_h, cameraman.aspect_ratio)
     try:
         while True:
             buf = proc.stdout.read(frame_bytes)
@@ -298,6 +302,8 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                 cameraman.current_center_x = orig_w / 2
                 cameraman.target_center_x = orig_w / 2
                 xs.append(None)
+                if body_boxes is not None:
+                    body_boxes.append(None)
             else:
                 is_scene_start = (
                     current_scene_index < len(scenes_boundaries)
@@ -308,6 +314,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                     # (see SmoothedCameraman.begin_scene).
                     tracker.reset()
                     cameraman.begin_scene()
+                    body_camera.begin_scene()
 
                 if frame_number % m.DETECT_STRIDE == 0 or cut:
                     candidates = m.detect_face_candidates(frame)
@@ -317,13 +324,21 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                     target_box = tracker.get_target(candidates, frame_number, orig_w)
                     if target_box:
                         cameraman.update_target(target_box)
+                        if body_boxes is not None:
+                            small_face = [v / scale for v in target_box]
+                            body = subject_framing.detect_upper_body(frame, small_face)
+                            body_camera.update(target_box, tuple(v * scale for v in body))
                     elif frame_number % m.YOLO_FALLBACK_STRIDE == 0 or cut:
                         person_box = m.detect_person_yolo(frame)
                         if person_box:
                             cameraman.update_target([int(v * scale) for v in person_box])
+                            if body_boxes is not None:
+                                body_camera.update([int(v * scale) for v in person_box])
 
                 x1, _y1, _x2, _y2 = cameraman.get_crop_box(force_snap=is_scene_start)
                 xs.append(x1)
+                if body_boxes is not None:
+                    body_boxes.append(body_camera.box())
 
             frame_number += 1
     finally:
@@ -336,6 +351,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
 # --- render -----------------------------------------------------------------
 
 def _run(cmd):
+    cmd = [cmd[0], *ffmpeg_input_args(), *cmd[1:]]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL,
                    stderr=subprocess.PIPE, timeout=1800)
 
@@ -391,6 +407,8 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     orig_w, orig_h = m.get_video_resolution(input_video)
 
     out_w, out_h = delivery_size(orig_w, orig_h, aspect_ratio)
+    if abs(aspect_ratio-9/16)<.001:
+        out_w,out_h = 1080,1920
 
     if not scenes:
         import cv2
@@ -443,8 +461,8 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
         for start_f in list(splits):
             scene_idx = split_scene_of[start_f]
             end_f = scene_boundaries[scene_idx][1]
-            verdicts = active_speaker.verdicts_for_scene(
-                input_video, start_f, end_f, fps, splits[start_f])
+            verdicts, tracks, activity = active_speaker.verdicts_for_scene(
+                input_video, start_f, end_f, fps, splits[start_f], with_tracks=True, with_activity=True)
             if not active_speaker.is_conversation(verdicts):
                 a, b = active_speaker.shares(verdicts)
                 print(f"   🔇 Scene {scene_idx}: one speaker holds the floor "
@@ -453,8 +471,9 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 strategies[scene_idx] = 'GENERAL'
             elif active_speaker.CUT_MODE:
                 strategies[scene_idx] = 'ALTERNATE'
-                alternates[start_f] = (
-                    active_speaker.hold(verdicts), splits.pop(start_f))
+                held = active_speaker.hold(verdicts, min_hold_windows=6)
+                camera_held = active_speaker.reaction_cuts(held,activity) if os.environ.get('REACTION_SHOTS')=='1' else held
+                alternates[start_f] = (camera_held,splits.pop(start_f),tracks,held)
     if splits:
         print(f"   🪞 SPLIT layout on {len(splits)} scene(s)")
     if alternates:
@@ -524,6 +543,11 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     if inset_count:
         print(f"   📹 Camera-inset layout on {inset_count} scene(s)")
 
+    # Default group/face-less footage gets a fill crop. Explicit WIDE/screen
+    # choices keep their readable-content layout.
+    if not force_strategy and os.environ.get('REFRAME_FILL', '1') != '0':
+        strategies = ['TRACK' if s == 'GENERAL' else s for s in strategies]
+
     # The crop geometry comes from the SOURCE dims only — SmoothedCameraman
     # derives crop_width/crop_height from video_width/video_height and never
     # reads the output pair. So out_w/out_h being the (possibly upscaled)
@@ -531,15 +555,22 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     cameraman = m.SmoothedCameraman(out_w, out_h, orig_w, orig_h, aspect_ratio=aspect_ratio)
     tracker = m.SpeakerTracker(cooldown_frames=30)
 
+    body_boxes = [] if (not passthrough and not crop_overrides
+                       and force_strategy not in ('WIDE', 'GENERAL')
+                       and os.environ.get('UPPER_BODY_CROP', '1') != '0') else None
     xs = _analyze_trajectory(input_video, scene_boundaries, strategies, fps,
-                             orig_w, orig_h, cameraman, tracker)
+                             orig_w, orig_h, cameraman, tracker, body_boxes)
     if not xs:
         raise RuntimeError("analysis produced no frames")
 
     # Beats are found once per clip; each scene takes the ones inside it.
     beats = []
     if punch_in.ENABLED:
-        beats = punch_in.emphasis_times(input_video, len(xs) / fps)
+        if os.path.isfile(input_video+'.beats.json'):
+            with open(input_video+'.beats.json',encoding='utf-8') as f:
+                beats = json.load(f)
+        if not beats:
+            beats = punch_in.emphasis_times(input_video, len(xs) / fps)
         if beats:
             print(f"   🔍 Punch-in on {len(beats)} beat(s)")
 
@@ -549,13 +580,23 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     # are still just a list of crop x values, so no new filtergraph is needed.
     # The trajectory is written here because the analysis pass deliberately
     # skips these scenes rather than tracking a face through them.
-    for start_f, (held, centres) in alternates.items():
+    for start_f, (held, centres, tracks, speech_held) in alternates.items():
         end_f = scene_boundaries[split_scene_of[start_f]][1]
         end_f = min(end_f, len(xs))
         if end_f <= start_f:
             continue
         xs[start_f:end_f] = active_speaker.speaker_xs(
-            held, centres, crop_w, orig_w, end_f - start_f, fps)
+            held, centres, crop_w, orig_w, end_f - start_f, fps, tracks=tracks)
+        if body_boxes is not None:
+            cameras = [subject_framing.BodyCamera(orig_w,orig_h,aspect_ratio) for _ in centres]
+            boxes = []
+            for frame in range(end_f-start_f):
+                window = min(int(frame/fps/active_speaker.WINDOW_SECONDS),len(held)-1) if held else 0
+                who = held[window] if held and held[window] is not None else 0
+                face = tracks[frame][who] if frame<len(tracks) else None
+                cameras[who].update(face or split_layout.as_box(centres[who]))
+                boxes.append(cameras[who].box())
+            body_boxes[start_f:end_f] = boxes
 
     # Last word on the trajectory: a scene the user framed by hand beats every
     # automatic verdict above, including the ALTERNATE writes.
@@ -599,16 +640,15 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 graph = split_layout.split_filtergraph(
                     orig_w, orig_h, out_w, out_h, left, right)
             elif strategy == 'GENERAL':
-                graph = general_filtergraph(out_w, out_h,
-                                            orig_w=orig_w, orig_h=orig_h)
+                graph = (subject_framing.fill_filtergraph(out_w, out_h)
+                         if os.environ.get('REFRAME_FILL', '1') != '0'
+                         else general_filtergraph(out_w, out_h, orig_w=orig_w, orig_h=orig_h))
             else:
                 seg_xs = [x if x is not None else 0 for x in xs[start_f:end_f]]
                 cmd_path = os.path.join(workdir, f"cmd_{idx:03d}.txt")
-                if beats:
-                    zooms = punch_in.zoom_curve(len(seg_xs), fps, beats,
-                                                start_offset=ss)
-                    boxes = punch_in.crop_boxes(seg_xs, zooms, crop_w, crop_h,
-                                                orig_w, orig_h)
+                if body_boxes is not None and strategy in ('TRACK','ALTERNATE'):
+                    boxes = subject_framing.lock_scene_lens(
+                        body_boxes[start_f:end_f], orig_w, orig_h, aspect_ratio)
                     lines = punch_in.sendcmd_lines(boxes, fps)
                     first = boxes[0]
                     init = f"w={first[0]}:h={first[1]}:x={first[2]}:y={first[3]}"
@@ -626,13 +666,14 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 graph = (
                     f"[0:v]sendcmd=f='{escape_filter_value(cmd_path)}',"
                     f"crop@c={init},"
-                    f"scale={out_w}:{out_h},setsar=1[v]"
+                    f"{punch_in.zoom_filter(beats,ss,dur,out_w,out_h,fps)},setsar=1[v]"
                 )
 
-            inputs, out_label = ["-i", input_video], "[v]"
+            graph += f';[v]fps={max(30.,fps)}'+(',unsharp=5:5:0.35:3:3:0' if orig_h<out_h else '')+'[delivery]'
+            inputs, out_label = ["-i", input_video], "[delivery]"
             if logo:
                 inputs += ["-i", logo]
-                graph += ";" + m.watermark_filter(out_w, out_h, video="[v]", out="[vw]")
+                graph += ";" + m.watermark_filter(out_w, out_h, video="[delivery]", out="[vw]")
                 out_label = "[vw]"
             _run([
                 "ffmpeg", "-y", "-loglevel", "error",
@@ -652,7 +693,7 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
             "-f", "concat", "-safe", "0", "-i", list_path,
             "-i", input_video,
             "-map", "0:v:0", "-map", "1:a:0?",
-            "-c:v", "copy", "-c:a", "copy", *METADATA_SCRUB,
+            "-c:v", "copy", *audio_encode_args(), *METADATA_SCRUB,
             # +faststart moves the moov atom to the front so the browser <video>
             # can start playing before the whole file downloads. Without it the
             # in-app preview spins forever (download still works) — the moov
@@ -667,5 +708,22 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     # Tell the caption pass which stretches are stacked (see layout_ranges).
     layout_ranges.write(final_output_video,
                         [(s / fps, e / fps, strategy) for s, e, strategy in ranges])
+    import speaker_identity
+    identities = speaker_identity.identify_shots(input_video,scene_boundaries,strategies,alternates,fps)
+    speaker_segments = []
+    for start_f,end_f,strategy in ranges:
+        ids = identities.get(start_f,[])
+        if strategy=='TRACK' and ids:
+            speaker_segments.append({'start':start_f/fps,'end':end_f/fps,'speaker':ids[0]})
+    for start_f,(_,_,_,speech_held) in alternates.items():
+        end_s = min(scene_boundaries[split_scene_of[start_f]][1],len(xs))/fps
+        for segment in active_speaker.segments(speech_held,start_f/fps):
+            ids = identities.get(start_f,[])
+            if segment['speaker']<len(ids):
+                segment['speaker'] = ids[segment['speaker']]
+            segment['end'] = min(end_s,segment['end'])
+            speaker_segments.append(segment)
+    with open(final_output_video+'.speakers.json','w',encoding='utf-8') as f:
+        json.dump(speaker_segments,f)
     print(f"   ✅ Clip saved to {final_output_video}")
     return True

@@ -468,7 +468,8 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
 
 
 def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="pill",
-                      also=None, font=None, layout_ranges=None, has_captions=True):
+                      also=None, font=None, layout_ranges=None, has_captions=True,
+                      animated=False, start_seconds=0.0):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom', or 'auto' (hook_placement: off the
@@ -511,8 +512,8 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
     # and one Bengali or Arabic character costs three). Embedding it untrimmed
     # raised OSError 36 and killed the endpoint in prod on 26-jul-2026.
     stem = os.path.splitext(os.path.basename(video_path))[0]
-    hook_filename = (f"temp_hook_{uuid.uuid4().hex[:8]}_"
-                     f"{_truncate_bytes(stem, 80)}.png")
+    hook_filename = os.path.join(os.path.dirname(output_path) or '.',
+        f"temp_hook_{uuid.uuid4().hex[:8]}_{_truncate_bytes(stem,80)}.png")
     
     try:
         img_path, box_w, box_h = create_hook_image(text, target_box_width, hook_filename, font_scale=font_scale, style=style,
@@ -542,8 +543,17 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         # 4. FFmpeg Command
         print(f"🎬 Overlaying hook: '{text}' at {overlay_x},{overlay_y}")
         
-        overlay = (f"[0:v][1:v]overlay={overlay_x}:{overlay_y}"
-                   + (f":enable='between(t,0,{float(duration)})'" if duration else ""))
+        start_seconds = max(0.,float(start_seconds))
+        image_input = ['-i',img_path]
+        image_label, prefix = '[1:v]', ''
+        if animated:
+            image_input = ['-loop','1','-framerate','30','-i',img_path]
+            image_label = '[hook]'
+            fade_out = f",fade=t=out:st={start_seconds+max(.35,float(duration or 3.5))-.35}:d=0.35:alpha=1" if duration else ''
+            prefix = f"[1:v]format=rgba,fade=t=in:st={start_seconds}:d=0.35:alpha=1{fade_out}[hook];"
+        overlay = (prefix+f"[0:v]{image_label}overlay={overlay_x}:{overlay_y}"
+                   + (':shortest=1' if animated else '')
+                   + (f":enable='between(t,{start_seconds},{start_seconds+float(duration)})'" if duration else ""))
         tail = ['-c:a', 'copy', *video_encode_args(QUALITY), *METADATA_SCRUB,
                 '-movflags', '+faststart']
         if also:
@@ -551,7 +561,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
             ffmpeg_cmd = [
                 'ffmpeg', '-y',
                 '-i', video_path,
-                '-i', img_path,
+                *image_input,
                 '-filter_complex', f"{overlay},split=2[h][c];[c]{extra_vf}[s]",
                 '-map', '[h]', '-map', '0:a?', *tail, output_path,
                 '-map', '[s]', '-map', '0:a?', *tail, extra_path,
@@ -560,7 +570,7 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
             ffmpeg_cmd = [
                 'ffmpeg', '-y',
                 '-i', video_path,
-                '-i', img_path,
+                *image_input,
                 '-filter_complex', overlay,
                 *tail,
                 output_path

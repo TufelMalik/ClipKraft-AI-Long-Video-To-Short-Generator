@@ -36,6 +36,12 @@ _RULES = [
     # Live transcription progress emitted by transcribe_backends.
     (re.compile(r'Transcribing… (\d+)%'), '🎙️ Transcribing audio… {0}%', 'asr'),
     (re.compile(r'Transcribing (video|audio)'), '🎙️ Transcribing audio…', 'asr'),
+    (re.compile(r'Preparing AV1 video'), '🎞️ Preparing video for analysis…', None),
+    (re.compile(r'Video prepared for analysis'), '✅ Video ready for analysis', None),
+    (re.compile(r'Subtitle check temporarily unavailable'),
+     '⏳ Retrying the source subtitle check…', 'subtitle-check'),
+    (re.compile(r'Burned-in subtitle check failed'),
+     '💬 Source subtitle check unavailable — continuing with captions', None),
     (re.compile(r'Analyzing with (?:Gemini|local LLM)'), '🤖 Finding the best moments…', None),
     (re.compile(r'Silent video — analyzing'), '🎥 No speech — finding moments in the picture…', None),
     (re.compile(r'Choosing a layout'), '🎛️ Choosing the layout…', None),

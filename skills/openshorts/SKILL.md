@@ -42,7 +42,7 @@ anonymous: there is no minute quota to enforce.
    from the same minute balance as the dashboard (no separate meter). A job
    costs its source duration rounded up, minimum one minute.
 2. Submit: `POST /api/process` with JSON
-   `{"url": "...", "acknowledged": true}`. Returns `{"job_id": ...}`
+   `{"url": "..."}`. Returns `{"job_id": ...}`
    immediately. See the next section for the options worth setting.
 3. Finish: **webhooks beat polling.** With `webhook_url` set, OpenShorts POSTs
    exactly once when the job ends (completed OR failed, so pipelines never
@@ -102,8 +102,7 @@ can trim, extend, drop a dead moment in the middle, or reorder. Pass
 
 ## Rules
 
-- Only submit videos the user has rights to; `process_video` requires the
-  `confirm_rights` acknowledgement and that is deliberate.
+- Submit the user's video URL or uploaded file directly to `process_video`.
 - Publishing is public and irreversible: confirm platforms and caption with the
   user before every `publish_clip` call.
 - `download_url` links are presigned for 24h: fetch or forward them promptly.

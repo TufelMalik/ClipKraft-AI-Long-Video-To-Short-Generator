@@ -5,7 +5,7 @@ the imported app (BILLING_ENABLED=0 via conftest). The job is only ENQUEUED —
 the worker never runs under ASGITransport (no lifespan) — so these tests own
 the /api/process contract for `thumbnail_session_id`: session validation, the
 hardlinked source under the job's name, the transcript file ridden along via
---transcript, and the attestation source.
+--transcript, without a content confirmation requirement.
 """
 
 import asyncio
@@ -100,7 +100,7 @@ def test_handover_links_source_and_transcript(dirs, session):
     with open(transcript_path) as f:
         assert json.load(f) == TRANSCRIPT
 
-    assert job["attestation"]["source"] == "thumbnail_session"
+    assert 'attestation' not in job
 
 
 def test_handover_without_ready_transcript_still_processes(dirs, session):
@@ -132,9 +132,10 @@ def test_session_with_missing_video_404s(dirs, session):
     assert resp.status_code == 404
 
 
-def test_handover_still_requires_attestation(dirs, session):
+def test_handover_needs_no_content_confirmation(dirs, session):
     resp = _post_process({"thumbnail_session_id": "sess1"})
-    assert resp.status_code == 400
+    _, job = _submitted_job(resp)
+    assert 'attestation' not in job
 
 
 def test_url_wins_over_session_id(dirs, session, monkeypatch):
@@ -148,4 +149,4 @@ def test_url_wins_over_session_id(dirs, session, monkeypatch):
     _, job = _submitted_job(resp)
     assert "-u" in job["cmd"]
     assert "--transcript" not in job["cmd"]
-    assert job["attestation"]["source"] == "url"
+    assert 'attestation' not in job

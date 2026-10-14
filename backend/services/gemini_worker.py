@@ -300,6 +300,8 @@ CLIP RULES:
 - THE 2-SECOND RULE: the clip MUST open on its strongest moment. If the first
   2 seconds would not stop a cold viewer from scrolling, move the start or skip the clip.
 - Start slightly before the hook and end slightly after the payoff when possible.
+- Prefer a complete 30–50 second thought when it fits the supplied duration bounds.
+- Finish on the payoff or a complete sentence; preserve necessary context even when a clip needs to be longer.
 - Do not cut in the middle of a word or phrase.
 - No generic intros/outros unless they are the hook.
 - STANDS ALONE: the clip must make sense to someone who has seen nothing else.

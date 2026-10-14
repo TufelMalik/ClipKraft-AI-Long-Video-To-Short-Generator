@@ -18,6 +18,7 @@ Everything in this module is pure enough to unit-test except decode_activity(),
 which needs ffmpeg.
 """
 import os
+import json
 import subprocess
 
 import numpy as np
@@ -29,8 +30,8 @@ WINDOW_SECONDS = 0.4
 # Off by default like every other new routing signal here. SPEAKER_SIGNAL=1
 # gates SPLIT on both people actually talking; SPEAKER_CUT=1 additionally
 # replaces the stack with hard cuts to whoever holds the floor.
-ENABLED = os.environ.get("SPEAKER_SIGNAL", "0") == "1"
-CUT_MODE = os.environ.get("SPEAKER_CUT", "0") == "1"
+ENABLED = os.environ.get("SPEAKER_SIGNAL", os.environ.get('RELEASE_V2', '0')) == "1"
+CUT_MODE = os.environ.get("SPEAKER_CUT", os.environ.get('RELEASE_V2', '0')) == "1"
 
 # A window counts as speech only if its audio RMS clears this fraction of the
 # scene's loudest window. Silence and room tone sit far below it.
@@ -167,7 +168,7 @@ def is_conversation(verdicts, min_share=None):
     return min(a, b) >= min_share
 
 
-def hold(verdicts, min_windows=3):
+def hold(verdicts, min_windows=3, min_hold_windows=0):
     """Smooth the per-window verdicts so the answer cannot flap.
 
     A cut back and forth every 0.4s is unwatchable, and a listener's single
@@ -178,7 +179,8 @@ def hold(verdicts, min_windows=3):
     current = None
     pending = None
     run = 0
-    for v in verdicts:
+    last_cut = -min_hold_windows
+    for index, v in enumerate(verdicts):
         if v is None or v == current:
             if v == current:
                 pending, run = None, 0
@@ -188,8 +190,9 @@ def hold(verdicts, min_windows=3):
             run += 1
         else:
             pending, run = v, 1
-        if current is None or run >= min_windows:
+        if current is None or (run >= min_windows and index-last_cut >= min_hold_windows):
             current, pending, run = v, None, 0
+            last_cut = index
         out.append(current)
 
     # Nothing was ever confident enough to start: leave it to the caller.
@@ -202,7 +205,7 @@ def hold(verdicts, min_windows=3):
 
 
 def speaker_xs(held, centres, crop_w, orig_w, n_frames, fps,
-               window_s=WINDOW_SECONDS):
+               window_s=WINDOW_SECONDS, tracks=None):
     """Per-frame crop x that cuts to whoever is speaking.
 
     Reuses the TRACK render path: a camera trajectory with hard jumps is still
@@ -212,32 +215,82 @@ def speaker_xs(held, centres, crop_w, orig_w, n_frames, fps,
     for f in range(n_frames):
         idx = min(int((f / fps) / window_s), len(held) - 1) if held else 0
         who = held[idx] if held else 0
-        cx = centres[who if who is not None else 0][0]
+        who = who if who is not None else 0
+        box = tracks[f][who] if tracks and f < len(tracks) else None
+        cx = box[0]+box[2]/2 if box else centres[who][0]
         x = int(round(cx - crop_w / 2.0))
         xs.append(max(0, min(x, orig_w - crop_w)))
     return xs
 
 
-def verdicts_for_scene(video_path, start_f, end_f, fps, centres):
+def verdicts_for_scene(video_path, start_f, end_f, fps, centres, with_tracks=False, with_activity=False):
     """Per-window speaker verdicts for one scene, from its two face centres."""
     import split_layout
 
     start_s = start_f / fps
     duration_s = (end_f - start_f) / fps
     boxes = [split_layout.as_box(c) for c in centres]
-    activity = decode_activity(video_path, start_s, duration_s, boxes, fps)
+    tracks = [] if with_tracks else None
+    activity = decode_activity(video_path, start_s, duration_s, boxes, fps, tracks=tracks)
     loudness = audio_envelope(video_path, start_s, duration_s)
-    return attribute_windows(normalise_activity(activity), loudness)
+    normalized = normalise_activity(activity)
+    verdicts = attribute_windows(normalized, loudness)
+    if with_activity:
+        return verdicts, tracks, normalized
+    return (verdicts, tracks) if with_tracks else verdicts
+
+
+def reaction_cuts(held, activity, duration_windows=3, cooldown_windows=30):
+    """Experimental listener cutaways on unusually strong facial motion.
+
+    This is an editorial heuristic, not an emotion or laughter classifier.
+    Speech attribution remains unchanged for caption colors.
+    """
+    output = list(held)
+    next_allowed = cooldown_windows
+    for i,pair in enumerate(activity):
+        if i<next_allowed or i>=len(held) or held[i] is None:
+            continue
+        speaker = held[i]
+        listener = 1-speaker
+        if pair[listener] >= 2. and pair[listener] > pair[speaker]*1.3:
+            stop = min(len(output),i+duration_windows)
+            if all(v==speaker for v in held[i:stop]):
+                output[i:stop] = [listener]*(stop-i)
+                next_allowed = stop+cooldown_windows
+    return output
+
+
+def segments(held,start_s=0.,window_s=WINDOW_SECONDS):
+    output = []
+    for i,who in enumerate(held):
+        if who is None:
+            continue
+        start,end = start_s+i*window_s,start_s+(i+1)*window_s
+        if output and output[-1]['speaker']==who:
+            output[-1]['end'] = end
+        else:
+            output.append({'start':start,'end':end,'speaker':who})
+    return output
+
+
+def read_segments(path):
+    try:
+        with open(path+'.speakers.json',encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError,ValueError):
+        return []
 
 
 def decode_activity(video_path, start_s, duration_s, boxes, fps,
-                    window_s=WINDOW_SECONDS):
+                    window_s=WINDOW_SECONDS, tracks=None):
     """Mouth-movement score per speaker per window over one scene.
 
     Decodes the scene once at ANALYSIS_WIDTH and measures mean absolute
     frame-to-frame change inside each speaker's mouth region.
     """
     import cv2
+    from speaker_registry import SpeakerRegistry
 
     probe = cv2.VideoCapture(video_path)
     orig_w = int(probe.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -253,31 +306,42 @@ def decode_activity(video_path, start_s, duration_s, boxes, fps,
     scale = orig_w / float(small_w)
     frame_bytes = small_w * small_h * 3
 
-    regions = [mouth_region(b, small_w, small_h, scale) for b in boxes]
+    registry = SpeakerRegistry(max_missing=max(1, int(fps)))
+    ids = [registry.update([tuple(v/scale for v in b)], 0)[0]['id'] for b in boxes]
 
     proc = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-ss", f"{start_s:.4f}",
          "-t", f"{duration_s:.4f}", "-i", video_path,
          "-vf", f"scale={small_w}:{small_h}", "-f", "rawvideo",
-         "-pix_fmt", "gray", "-"],
+         "-pix_fmt", "bgr24", "-"],
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         bufsize=small_w * small_h * 4)
 
     per_window = max(1, int(round(fps * window_s)))
     activity, bucket, prev = [], [], None
+    frame_index = 0
     try:
         while True:
-            buf = proc.stdout.read(small_w * small_h)
-            if len(buf) < small_w * small_h:
+            buf = proc.stdout.read(small_w * small_h * 3)
+            if len(buf) < small_w * small_h * 3:
                 break
-            frame = np.frombuffer(buf, dtype=np.uint8).reshape(small_h, small_w)
+            frame = np.frombuffer(buf, dtype=np.uint8).reshape(small_h, small_w, 3)
+            if frame_index % 4 == 0:
+                import main as m
+                registry.update([c['box'] for c in m.detect_face_candidates(frame)], frame_index)
+            tracked = [registry.predict(key, frame_index) for key in ids]
+            if tracks is not None:
+                tracks.append([tuple(v*scale for v in b) if b else None for b in tracked])
+            mouths = []
+            for original, b in zip(boxes, tracked):
+                region = mouth_region(b or tuple(v/scale for v in original), small_w, small_h)
+                x0,y0,x1,y1 = region
+                crop = cv2.cvtColor(frame[y0:y1,x0:x1], cv2.COLOR_BGR2GRAY)
+                mouths.append(cv2.resize(crop, (32,16)).astype(np.int16))
             if prev is not None:
-                bucket.append([
-                    float(np.mean(np.abs(
-                        frame[y0:y1, x0:x1].astype(np.int16)
-                        - prev[y0:y1, x0:x1].astype(np.int16))))
-                    for x0, y0, x1, y1 in regions])
-            prev = frame
+                bucket.append([float(np.mean(np.abs(a-b))) for a,b in zip(mouths,prev)])
+            prev = mouths
+            frame_index += 1
             if len(bucket) >= per_window:
                 activity.append(np.mean(bucket, axis=0).tolist())
                 bucket = []

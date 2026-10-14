@@ -47,7 +47,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"url\": \"{{ $json['Video URL'] }}\",\n  \"acknowledged\": true,\n  \"webhook_url\": \"PASTE_THE_PRODUCTION_URL_OF_THE_CLIPS-READY_WEBHOOK_NODE_HERE\",\n  \"webhook_secret\": \"change-me\"\n}",
+        "jsonBody": "={\n  \"url\": \"{{ $json['Video URL'] }}\",\n  \"webhook_url\": \"PASTE_THE_PRODUCTION_URL_OF_THE_CLIPS-READY_WEBHOOK_NODE_HERE\",\n  \"webhook_secret\": \"change-me\"\n}",
         "options": {}
       },
       "id": "start-job",

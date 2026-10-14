@@ -544,14 +544,17 @@ function App() {
   const handleClipRerendered = (index, data) => {
     const newFile = (data.new_video_url || '').split('/').pop();
     setResults((prev) => {
-      if (!prev?.clips?.[index]) return prev;
+      const resultIndex = prev?.clips?.findIndex((clip, i) => (clip.metadata_index ?? i) === index) ?? -1;
+      if (resultIndex < 0) return prev;
       const clips = prev.clips.slice();
-      clips[index] = {
-        ...clips[index],
+      clips[resultIndex] = {
+        ...clips[resultIndex],
         video_url: data.new_video_url,
         start: data.start,
         end: data.end,
         recipe: data.recipe,
+        output_duration: data.duration,
+        broll_points: data.broll_points,
       };
       return { ...prev, clips };
     });
@@ -607,7 +610,7 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             job_id: jobId,
-            clip_index: i,
+            clip_index: results.clips[i].metadata_index ?? i,
             position: options.position,
             font_size: options.fontSize,
             font_name: options.fontName,
@@ -810,6 +813,12 @@ function App() {
           const data = await pollJob(jobId);
           console.log("Job status:", data);
 
+          // Terminal responses carry the last pipeline logs too.
+          if (data.logs) {
+            setLogs(data.logs);
+            setLogTimes(data.log_times || []);
+          }
+
           // Update results if available (real-time)
           if (data.result) {
             setResults(data.result);
@@ -830,12 +839,6 @@ function App() {
             setLogs(prev => [...prev, "Error: " + errorMsg]);
             clearInterval(interval);
             refreshMe();
-          } else {
-            // Update logs if available
-            if (data.logs) {
-              setLogs(data.logs);
-              setLogTimes(data.log_times || []);
-            }
           }
         } catch (e) {
           console.error("Polling error", e);
@@ -1076,13 +1079,16 @@ function App() {
         // Set when the user took the quota wall's "clip the first N minutes"
         // offer: the server reserves N minutes and cuts the source to them.
         max_minutes: data.maxMinutes || null,
+        editorial: data.editorial ? JSON.stringify(data.editorial) : null,
+        channel_id: data.channel?.channelId || null,
+        source_creator_id: data.channel?.creatorId || null,
+        niche: data.channel?.niche || null,
       };
 
-      if (data.type === 'url') {
+      if (data.type === 'url' && !data.introAudio && !data.outroAudio) {
         headers['Content-Type'] = 'application/json';
         body = JSON.stringify({
           url: data.payload,
-          acknowledged: !!data.acknowledged,
           output_format: data.outputFormat || 'auto',
           force_low_quality: forceLowQuality,
           ...Object.fromEntries(Object.entries(advanced).filter(([, v]) => v != null)),
@@ -1093,14 +1099,15 @@ function App() {
         headers['Content-Type'] = 'application/json';
         body = JSON.stringify({
           thumbnail_session_id: data.payload,
-          acknowledged: !!data.acknowledged,
           output_format: data.outputFormat || 'auto',
           ...Object.fromEntries(Object.entries(advanced).filter(([, v]) => v != null)),
         });
       } else {
         const formData = new FormData();
-        formData.append('file', data.payload);
-        formData.append('acknowledged', data.acknowledged ? 'true' : 'false');
+        if (data.type === 'url') formData.append('url', data.payload);
+        else formData.append('file', data.payload);
+        if (data.introAudio) formData.append('intro_audio', data.introAudio);
+        if (data.outroAudio) formData.append('outro_audio', data.outroAudio);
         formData.append('output_format', data.outputFormat || 'auto');
         for (const [k, v] of Object.entries(advanced)) {
           if (v != null) formData.append(k, v);
@@ -1983,9 +1990,7 @@ function App() {
               managed={isManaged}
               onCreateClips={(sessionId) => {
                 setActiveTab('dashboard');
-                // The Studio source is the user's own upload, published to their
-                // own channel; the handover carries that same attestation.
-                handleProcess({ type: 'thumbnail_session', payload: sessionId, acknowledged: true });
+                handleProcess({ type: 'thumbnail_session', payload: sessionId });
               }}
             />
           )}
@@ -2483,7 +2488,7 @@ function App() {
       {editingClip !== null && results?.clips?.[editingClip] && (
         <ClipEditor
           jobId={jobId}
-          clipIndex={editingClip}
+          clipIndex={results.clips[editingClip].metadata_index ?? editingClip}
           clipTitle={results.clips[editingClip].video_title_for_youtube_short || ''}
           onClose={() => setEditingClip(null)}
           onRerendered={handleClipRerendered}
@@ -2492,7 +2497,7 @@ function App() {
       {reframingClip !== null && results?.clips?.[reframingClip] && (
         <ReframeEditor
           jobId={jobId}
-          clipIndex={reframingClip}
+          clipIndex={results.clips[reframingClip].metadata_index ?? reframingClip}
           clipTitle={results.clips[reframingClip].video_title_for_youtube_short || ''}
           onClose={() => setReframingClip(null)}
           onReframed={handleClipRerendered}

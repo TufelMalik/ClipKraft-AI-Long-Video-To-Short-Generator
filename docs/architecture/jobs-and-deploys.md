@@ -56,7 +56,10 @@ Speed at equal quality:
 - **hooked_ + subtitled_ from one ffmpeg** (`hooks.add_hook_to_video(also=)`):
   the editor still needs both files (re-caption walks back to hooked_, hook
   replace to the canonical), so nothing is skipped, only one decode.
-- **`CLIP_WORKERS=6`** by default.
+- **`CLIP_WORKERS`** defaults to 6 with usable NVENC, 2 with CPU encoding
+  (including NVENC fallback). Override it for the host's available memory.
+  **`FFMPEG_THREADS=2`** bounds decoder/filter/CPU encoder thread pools in the
+  cut, reframe and editorial passes to avoid oversized frame buffers.
 
 Tried and dropped: NVDEC for the analysis decodes and `scale_cuda` (slower, and
 scale_cuda does not match swscale); yt-dlp chunking/concurrent fragments (no

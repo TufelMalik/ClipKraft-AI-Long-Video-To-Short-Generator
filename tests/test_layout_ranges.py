@@ -128,6 +128,8 @@ class TestRemapAcrossCut:
 class TestLayoutEnvNone:
     def test_none_switches_the_picker_off_for_the_job(self):
         app_module = pytest.importorskip("app")
-        assert app_module.layout_env(["none"]) == {"AUTO_LAYOUT": "0"}
+        env = app_module.layout_env(["none"])
+        assert env['AUTO_LAYOUT'] == '0'
+        assert all(env[key]=='0' for key in ('SPLIT_LAYOUT','SPEAKER_SIGNAL','SPEAKER_CUT'))
         assert app_module.layout_env(["auto"]) == {"AUTO_LAYOUT": "1"}
         assert app_module.layout_env(["split"])["SPLIT_LAYOUT"] == "1"

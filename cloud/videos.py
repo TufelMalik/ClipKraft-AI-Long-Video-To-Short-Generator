@@ -174,15 +174,12 @@ async def unmark_user_library(user_id) -> int:
     return done
 
 
-async def archive_job(user_id, job_id, clips, output_dir, attestation=None):
+async def archive_job(user_id, job_id, clips, output_dir):
     """Upload a completed managed job's clips + metadata JSON to R2 and record
     them for history. The metadata (transcript included) plus the Project row
     make the whole job re-openable and editable later, not just viewable.
 
-    ``attestation`` is the "I hold the rights to this video" declaration the
-    submitter ticked (truncated IP, user agent, timestamp, which input path).
-    The privacy policy promises to keep it; the Project row is where it lives,
-    so it is deleted with the account like everything else that names a user.
+    Existing project metadata is retained when a job is re-archived.
     """
     if not settings.r2_configured or not clips:
         return
@@ -272,16 +269,7 @@ async def archive_job(user_id, job_id, clips, output_dir, attestation=None):
                      "active_layers": None}
                     for i, filename, _key, _title, _size in uploaded
                 ]}
-                if attestation:
-                    state["rights_attestation"] = {
-                        "acknowledged": bool(attestation.get("acknowledged")),
-                        # Already truncated to a /24 (or /48) by app.py.
-                        "ip_network": attestation.get("ip"),
-                        "user_agent": (attestation.get("user_agent") or "")[:300],
-                        "timestamp": attestation.get("timestamp"),
-                        "source": attestation.get("source"),
-                    }
-                elif proj is not None and isinstance(proj.state, dict):
+                if proj is not None and isinstance(proj.state, dict):
                     # Re-archiving must not erase the original declaration.
                     prior = proj.state.get("rights_attestation")
                     if prior:

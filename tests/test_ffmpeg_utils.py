@@ -19,19 +19,44 @@ from ffmpeg_utils import (
 @pytest.fixture(autouse=True)
 def _clean_encoder_state(monkeypatch):
     monkeypatch.delenv("FFMPEG_ENCODER", raising=False)
+    monkeypatch.delenv("FFMPEG_THREADS", raising=False)
+    monkeypatch.delenv("CLIP_WORKERS", raising=False)
     monkeypatch.setattr(ffmpeg_utils, "_gpu_cut_sources", {})
     reset_encoder_cache()
     yield
     reset_encoder_cache()
 
 
-def test_default_args_pin_historical_x264_settings():
+def test_default_args_pin_x264_quality_and_limit_threads():
     assert video_encode_args(QUALITY) == [
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18"]
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-threads:v", "2"]
     assert video_encode_args(QUALITY_FAST) == [
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18"]
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-threads:v", "2"]
     assert video_encode_args(DELIVERY) == [
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22"]
+        "-c:v", "libx264", "-preset", "fast", "-crf", "22", "-threads:v", "2"]
+
+
+@pytest.mark.parametrize('configured,expected', [('4', '4'), ('0', '1'), ('-2', '1')])
+def test_thread_limits_apply_to_encoder_decoder_and_filters(monkeypatch, configured, expected):
+    monkeypatch.setenv('FFMPEG_THREADS', configured)
+    assert video_encode_args(QUALITY_FAST)[-2:] == ['-threads:v', expected]
+    assert ffmpeg_utils.ffmpeg_input_args() == [
+        '-threads', expected, '-filter_threads', expected, '-filter_complex_threads', expected]
+
+
+@pytest.mark.parametrize('mode,available,expected', [
+    ('x264', False, 2), ('nvenc', True, 6), ('auto', True, 6),
+    ('nvenc', False, 2), ('auto', False, 2)])
+def test_worker_default_tracks_the_actual_encoder(monkeypatch, mode, available, expected):
+    monkeypatch.setenv('FFMPEG_ENCODER', mode)
+    monkeypatch.setattr(ffmpeg_utils, '_probe_nvenc', lambda: available)
+    assert ffmpeg_utils.clip_worker_count() == expected
+
+
+@pytest.mark.parametrize('configured,expected', [('1', 1), ('4', 4), ('0', 1)])
+def test_explicit_worker_setting_is_preserved(monkeypatch, configured, expected):
+    monkeypatch.setenv('CLIP_WORKERS', configured)
+    assert ffmpeg_utils.clip_worker_count() == expected
 
 
 def test_unknown_tier_raises():

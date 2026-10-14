@@ -110,6 +110,7 @@ USER appuser
 
 # Pre-download YOLO model on build (now running as appuser)
 RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+RUN python scripts/setup_speaker_models.py --dir /app/.cache/speaker-models
 
 # Expose FastAPI port
 EXPOSE 8000

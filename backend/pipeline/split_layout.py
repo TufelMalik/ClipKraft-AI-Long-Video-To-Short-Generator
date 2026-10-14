@@ -20,7 +20,7 @@ import numpy as np
 
 import frame_sampler
 
-ENABLED = os.environ.get("SPLIT_LAYOUT", "0") == "1"
+ENABLED = os.environ.get("SPLIT_LAYOUT", os.environ.get('RELEASE_V2', '0')) == "1"
 
 # Fraction of sampled frames that must show BOTH faces at once.
 #

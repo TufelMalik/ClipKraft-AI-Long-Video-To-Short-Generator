@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link2, Upload, FileVideo, X, Info, Loader2, ChevronDown } from 'lucide-react';
 import { track } from '../lib/analytics';
 import { getApiUrl } from '../config';
+import EditorialSettings from './EditorialSettings';
+import { INITIAL_EDITORIAL } from '../lib/editorial';
+import ChannelSettings from './ChannelSettings';
 
 const SUPPORTED_PLATFORMS = [
     'YouTube', 'Vimeo', 'TikTok', 'X / Twitter', 'Twitch',
@@ -37,7 +40,6 @@ export default function MediaInput({ onProcess, isProcessing }) {
     const [file, setFile] = useState(null);
     const [fileSeconds, setFileSeconds] = useState(null);
     const fileTooShort = fileSeconds != null && fileSeconds < MIN_SOURCE_SECONDS;
-    const [acknowledged, setAcknowledged] = useState(false);
     const [outputFormat, setOutputFormat] = useState('vertical'); // vertical | horizontal | square
     const [showInfo, setShowInfo] = useState(false);
     // Advanced generation controls — empty string means "let the AI decide",
@@ -62,6 +64,10 @@ export default function MediaInput({ onProcess, isProcessing }) {
         try { return localStorage.getItem('os_layout') || 'auto'; } catch { return 'auto'; }
     });
     const infoRef = useRef(null);
+    const [editorial, setEditorial] = useState(INITIAL_EDITORIAL);
+    const [introAudio, setIntroAudio] = useState(null);
+    const [outroAudio, setOutroAudio] = useState(null);
+    const [channel, setChannel] = useState({ channelId: '', creatorId: '', niche: '' });
 
     // Close the compatibility popover on any outside click.
     useEffect(() => {
@@ -100,8 +106,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
     }, []);
 
     // A link pasted in the landing hero: preload it here so the user picks up
-    // where they left off. Not auto-submitted — the rights attestation below
-    // has to be ticked by the user.
+    // where they left off and can choose their settings before submitting.
     useEffect(() => {
         let pending = null;
         try {
@@ -116,7 +121,6 @@ export default function MediaInput({ onProcess, isProcessing }) {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!acknowledged) return;
         const advanced = {
             targetClips: targetClips || null,
             clipMinSeconds: clipMinSeconds || null,
@@ -124,6 +128,10 @@ export default function MediaInput({ onProcess, isProcessing }) {
             autoHook,
             autoHookStyle,
             layout,
+            editorial,
+            introAudio,
+            outroAudio,
+            channel,
         };
         try {
             localStorage.setItem('os_auto_hook', autoHook ? '1' : '0');
@@ -131,9 +139,9 @@ export default function MediaInput({ onProcess, isProcessing }) {
             localStorage.setItem('os_layout', layout);
         } catch { /* ignore */ }
         if (mode === 'url' && url) {
-            onProcess({ type: 'url', payload: url, acknowledged: true, outputFormat, ...advanced });
+            onProcess({ type: 'url', payload: url, outputFormat, ...advanced });
         } else if (mode === 'file' && file && !fileTooShort) {
-            onProcess({ type: 'file', payload: file, acknowledged: true, outputFormat, ...advanced });
+            onProcess({ type: 'file', payload: file, outputFormat, ...advanced });
         }
     };
 
@@ -391,22 +399,14 @@ export default function MediaInput({ onProcess, isProcessing }) {
                     )}
                 </div>
 
-                <label className="flex items-start gap-2.5 mt-5 text-left text-[13px] sm:text-xs leading-relaxed text-muted cursor-pointer select-none">
-                    <input
-                        type="checkbox"
-                        checked={acknowledged}
-                        onChange={(e) => setAcknowledged(e.target.checked)}
-                        className="mt-0.5 w-4 h-4 shrink-0 accent-[var(--color-accent)] cursor-pointer"
-                    />
-                    <span>
-                        I confirm I own this content or have the rights to process it. I am responsible for any content I submit. See our <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors" onClick={(e) => e.stopPropagation()}>Terms</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-ink2 underline underline-offset-2 hover:text-brass transition-colors" onClick={(e) => e.stopPropagation()}>Privacy Policy</a>.
-                    </span>
-                </label>
+                {showAdvanced && <EditorialSettings value={editorial} onChange={setEditorial}
+                    intro={introAudio} outro={outroAudio} onIntro={setIntroAudio} onOutro={setOutroAudio} disabled={isProcessing} />}
+                {showAdvanced && <ChannelSettings value={channel} onChange={setChannel} disabled={isProcessing} />}
 
                 <button
                     type="submit"
                     data-tutorial="generate"
-                    disabled={isProcessing || !acknowledged || (mode === 'url' && !url) || (mode === 'file' && (!file || fileTooShort))}
+                    disabled={isProcessing || (mode === 'url' && !url) || (mode === 'file' && (!file || fileTooShort))}
                     className="w-full btn-primary mt-4"
                 >
                     {isProcessing ? (

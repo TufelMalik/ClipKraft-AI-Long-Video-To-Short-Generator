@@ -1,0 +1,7 @@
+{
+  "channels": [
+    {"id": "finance", "name": "Finance", "niche": "finance", "creators": []},
+    {"id": "tech", "name": "Tech / AI", "niche": "tech", "creators": []},
+    {"id": "motivation", "name": "Motivation", "niche": "motivation", "creators": []}
+  ]
+}

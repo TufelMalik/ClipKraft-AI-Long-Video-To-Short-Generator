@@ -79,6 +79,7 @@ const POSITION_OPTIONS = [
 // Ready-made caption looks burned server-side as karaoke ASS (word highlight):
 // dimmed base text + strong active word, optional glow/pop/box effect.
 const CAPTION_PRESETS = [
+    { id: 'neon', label: 'Neon', style: 'karaoke', effect: 'glow', highlightColor: '#00FFFF', baseOpacity: 1.0, uppercase: false, fontName: 'Montserrat ExtraBold', borderWidth: 2, shadow: 0, fontSize: 40 },
     // What every clip ships with (subtitles.AUTO_CAPTION_STYLE).
     { id: 'default', label: 'Default',  style: 'karaoke', effect: 'pop',       highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true,  fontName: 'Anton', borderWidth: 4, fontSize: 44 },
     // Trending short-form looks (2026): word-by-word build-up, a box behind

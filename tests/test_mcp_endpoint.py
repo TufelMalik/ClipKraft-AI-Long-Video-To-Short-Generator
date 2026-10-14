@@ -10,6 +10,7 @@ import asyncio
 # Self-host mode is guaranteed by tests/conftest.py (BILLING_ENABLED=0), which
 # runs before any test module can import app.
 import httpx
+import pytest
 
 import app as app_module
 from app import app
@@ -76,12 +77,22 @@ class TestToolsThroughRealEndpoints:
         assert result["isError"] is True
         assert result["structuredContent"]["http_status"] == 404
 
-    def test_process_video_requires_rights_confirmation(self):
-        resp = _call("process_video",
-                     {"source_url": "https://example.com/v.mp4", "confirm_rights": False})
+    @pytest.mark.parametrize('confirmation', [None, False, True])
+    def test_process_video_needs_no_rights_confirmation(self, tmp_path, monkeypatch, confirmation):
+        monkeypatch.setenv('GEMINI_API_KEY', 'test-dummy-key')
+        monkeypatch.setattr(app_module, 'OUTPUT_DIR', str(tmp_path))
+        async def skip(*args):
+            return None
+        monkeypatch.setattr(app_module, '_quality_gate', skip)
+        monkeypatch.setattr(app_module, '_validate_source_url', skip)
+        arguments = {'source_url': 'https://example.com/v.mp4'}
+        if confirmation is not None:
+            arguments['confirm_rights'] = confirmation
+        resp = _call('process_video', arguments)
         result = resp.json()["result"]
-        assert result["isError"] is True
-        assert "confirm_rights" in result["structuredContent"]["error"]
+        assert result['isError'] is False, result
+        job_id = result['structuredContent']['job_id']
+        assert 'attestation' not in app_module.jobs.pop(job_id)
 
     def test_unknown_tool_is_a_tool_error(self):
         resp = _call("make_coffee", {})
