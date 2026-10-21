@@ -105,7 +105,10 @@ def run_manual_clips_job(job_id: str, src_video: str, clips_config: List[Dict[st
         "shorts": generated_clips,
         "cost_analysis": {
             "total_clips": len(generated_clips),
-            "mode": "manual_edit"
+            "mode": "manual_edit",
+            "total_cost": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0
         }
     }
     with open(metadata_path, "w", encoding="utf-8") as f:

@@ -2213,9 +2213,9 @@ function App() {
                         {results.clips.length} Clips
                       </span>
                     )}
-                    {results?.cost_analysis && !isManaged && (
-                      <span className="readout bg-paper3 px-2.5 py-1 rounded-full" title={`Input: ${results.cost_analysis.input_tokens} | Output: ${results.cost_analysis.output_tokens}`}>
-                        GEMINI · ${results.cost_analysis.total_cost.toFixed(5)}
+                    {results?.cost_analysis?.total_cost != null && !isManaged && (
+                      <span className="readout bg-paper3 px-2.5 py-1 rounded-full" title={`Input: ${results.cost_analysis.input_tokens || 0} | Output: ${results.cost_analysis.output_tokens || 0}`}>
+                        GEMINI · ${Number(results.cost_analysis.total_cost || 0).toFixed(5)}
                       </span>
                     )}
                   </h2>
