@@ -3,6 +3,8 @@ import sys
 import json
 import re
 import math
+import shutil
+import time
 import subprocess
 import cv2
 import numpy as np
@@ -38,6 +40,15 @@ import active_speaker
 DEFAULT_TFLITE = os.path.join(REPO_ROOT, "blaze_face_short_range.tflite")
 DEFAULT_YOLO = os.path.join(REPO_ROOT, "yolov8n.pt")
 DEFAULT_OUTRO = r"C:\Youtube Channels\Videos\Temp Videos\OUTRO_D_3.5s.mp4"
+
+def safe_print(msg: str):
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        try:
+            print(msg.encode("ascii", errors="replace").decode("ascii"))
+        except Exception:
+            pass
 
 def parse_time_str(val) -> float:
     """Parses timestamps like '03:26', '01:10:21', '206.5', '3m26s' into seconds."""
@@ -92,8 +103,14 @@ def extract_segment(src_path: str, start_s: float, end_s: float, out_path: str):
     ]
     subprocess.run(cmd, check=True)
 
-def transcribe_audio_words(video_path: str, log_fn=print):
-    """Extracts audio to WAV and transcribes using faster-whisper to get word-level timestamps."""
+def transcribe_audio_words(video_path: str, log_fn=safe_print):
+    """
+    Extracts audio to WAV and transcribes using faster-whisper to get word-level timestamps.
+    Returns:
+      words: list of dicts [{'word': str, 'start': float, 'end': float}], relative to segment
+      full_text: string
+      language: str (e.g. 'en')
+    """
     wav_path = video_path + ".wav"
     subprocess.run([
         "ffmpeg", "-y", "-loglevel", "error",
@@ -103,23 +120,41 @@ def transcribe_audio_words(video_path: str, log_fn=print):
     ], check=True)
 
     words = []
-    if HAS_WHISPER:
+    text_pieces = []
+    language = "en"
+    try:
+        from faster_whisper import WhisperModel
+        import wave
         log_fn("   🎙️ Transcribing speech with Faster-Whisper...")
-        try:
-            model = WhisperModel("base", device="cpu", compute_type="int8")
-            segments, _ = model.transcribe(wav_path, word_timestamps=True)
-            for seg in segments:
-                if seg.words:
-                    for w in seg.words:
-                        cleaned = w.word.strip()
-                        if cleaned:
-                            words.append({
-                                "word": cleaned,
-                                "start": round(w.start, 3),
-                                "end": round(w.end, 3)
-                            })
-        except Exception as e:
-            log_fn(f"   ⚠️ Faster-Whisper error: {e}")
+        model = WhisperModel("base", device="cpu", compute_type="int8")
+        
+        # Load audio into numpy float32 array for 100% robust transcription
+        with wave.open(wav_path, "rb") as wf:
+            raw_bytes = wf.readframes(wf.getnframes())
+            audio_array = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+            
+        segments, info = model.transcribe(audio_array, word_timestamps=True)
+        if hasattr(info, 'language'):
+            language = info.language
+        for seg in segments:
+            if seg.text:
+                text_pieces.append(seg.text.strip())
+            if seg.words:
+                for w in seg.words:
+                    cleaned = w.word.strip()
+                    if cleaned:
+                        words.append({
+                            "word": cleaned,
+                            "raw_word": w.word,
+                            "start": round(w.start, 3),
+                            "end": round(w.end, 3),
+                            "probability": getattr(w, "probability", 0.95)
+                        })
+        log_fn(f"   ✅ Transcribed {len(words)} words ({language}).")
+    except Exception as e:
+        log_fn(f"   ⚠️ Faster-Whisper error: {e}")
+        import traceback
+        log_fn(traceback.format_exc())
 
     if os.path.exists(wav_path):
         try:
@@ -127,7 +162,8 @@ def transcribe_audio_words(video_path: str, log_fn=print):
         except Exception:
             pass
 
-    return words
+    full_text = " ".join(text_pieces)
+    return words, full_text, language
 
 def build_ass_subtitles(words, hook_text: str, duration_scaled: float, ass_path: str, speed: float = 1.20):
     """
@@ -139,8 +175,8 @@ def build_ass_subtitles(words, hook_text: str, duration_scaled: float, ass_path:
     for w in words:
         scaled_words.append({
             'word': w['word'].upper(),
-            'start': w['start'] / speed,
-            'end': w['end'] / speed
+            'start': round(w['start'] / speed, 3),
+            'end': round(w['end'] / speed, 3)
         })
 
     blocks = []
@@ -183,28 +219,28 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         clean_hook = hook_text.strip().upper()
         events.append(f"Dialogue: 1,0:00:00.00,{format_ts(hook_end)},Hook,,0,0,0,,{clean_hook}")
 
-    # Word-by-word karaoke blocks
+    # Word-by-word karaoke blocks without gap flicker
     for block in blocks:
-        for active_idx, active_word in enumerate(block):
-            w_start = active_word['start']
-            w_end = active_word['end']
-            if w_end <= w_start:
-                w_end = w_start + 0.12
+        for i, active_word in enumerate(block):
+            ev_start = block[0]['start'] if i == 0 else active_word['start']
+            ev_end = block[i + 1]['start'] if i < len(block) - 1 else block[-1]['end']
+            if ev_end <= ev_start:
+                ev_end = ev_start + 0.15
 
             line_parts = []
-            for i, w in enumerate(block):
+            for j, w in enumerate(block):
                 txt = w['word']
-                if i == active_idx:
-                    line_parts.append(f"{{\\c&H0000E5FF&\\fscx106\\fscy106\\bord3.0}}{txt}{{\\rDefault}}")
+                if j == i:
+                    line_parts.append(f"{{\\c&H0000E5FF&\\fscx108\\fscy108\\bord3.0}}{txt}{{\\rDefault}}")
                 else:
                     line_parts.append(txt)
             line_text = " ".join(line_parts)
-            events.append(f"Dialogue: 0,{format_ts(w_start)},{format_ts(w_end)},Default,,0,0,0,,{line_text}")
+            events.append(f"Dialogue: 0,{format_ts(ev_start)},{format_ts(ev_end)},Default,,0,0,0,,{line_text}")
 
     with open(ass_path, "w", encoding="utf-8-sig") as f:
         f.write(header + "\n".join(events) + "\n")
 
-def detect_candidate_speakers(video_path: str, orig_w: int, orig_h: int, log_fn=print):
+def detect_candidate_speakers(video_path: str, orig_w: int, orig_h: int, log_fn=safe_print):
     """
     Samples frames across the video to discover all seated/present face clusters.
     Returns list of speaker cluster dicts: [{ 'cx': float, 'box': [x,y,w,h] }, ...]
@@ -302,7 +338,7 @@ def detect_candidate_speakers(video_path: str, orig_w: int, orig_h: int, log_fn=
     speaker_list.sort(key=lambda s: s['cx'])
     return speaker_list
 
-def compute_active_speaker_trajectory(video_path: str, log_fn=print):
+def compute_active_speaker_trajectory(video_path: str, log_fn=safe_print):
     """
     Detects who is speaking in each time window and computes a smooth horizontal pan (X).
     Accurately cuts/pans between speakers when conversation switches.
@@ -525,8 +561,9 @@ def generate_sendcmd_boxes(boxes, fps, cmd_path, speed=1.0):
     with open(cmd_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
-def process_single_clip(src_video: str, clip_data: dict, work_dir: str, out_video: str,
-                        speed: float = 1.20, outro_path: str = DEFAULT_OUTRO, log_fn=print):
+def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
+                        clean_out_video: str, subtitled_out_video: str,
+                        speed: float = 1.20, outro_path: str = DEFAULT_OUTRO, log_fn=safe_print):
     """
     Renders one manual clip with:
     - Active speaker face detection & smooth cinematic tracking
@@ -535,6 +572,11 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str, out_vide
     - 3.0s black-box yellow hook banner
     - Animated word-by-word karaoke captions
     - Appended outro video
+    Outputs:
+    - clean_out_video: clean 9:16 video without subtitles (for /api/subtitle restyling)
+    - subtitled_out_video: 9:16 video with Hook + Captions burned in
+    Returns:
+    - (words, full_text, language)
     """
     hook_text = clip_data.get("hook", "")
     start_s = parse_time_str(clip_data.get("start", 0))
@@ -546,7 +588,7 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str, out_vide
     extract_segment(src_video, start_s, end_s, raw_segment)
 
     # 1. Word-level transcription
-    words = transcribe_audio_words(raw_segment, log_fn=log_fn)
+    words, full_text, language = transcribe_audio_words(raw_segment, log_fn=log_fn)
 
     # 2. Active speaker detection and dynamic framing
     log_fn("🔍 Performing active speaker face detection & camera tracking...")
@@ -567,18 +609,16 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str, out_vide
     cmd_path = os.path.join(work_dir, f"cmd_{clip_id}.txt")
     generate_sendcmd_boxes(boxes, fps, cmd_path, speed=speed)
 
-    # 6. Reframe to 9:16 vertical video & 1.20x speedup
+    # 6. Reframe to 9:16 vertical video & 1.20x speedup (clean baseline)
     reframed_path = os.path.join(work_dir, f"reframed_{clip_id}.mp4")
     rel_cmd = os.path.relpath(cmd_path, REPO_ROOT).replace("\\", "/")
-    rel_ass = os.path.relpath(ass_path, REPO_ROOT).replace("\\", "/")
 
     first_w, first_h, first_x, first_y = boxes[0]
     filtergraph = (
         f"[0:v]setpts=PTS/{speed},"
         f"sendcmd=f={rel_cmd},"
         f"crop@c=w={first_w}:h={first_h}:x={first_x}:y={first_y},"
-        f"scale=1080:1920:flags=lanczos,setsar=1,"
-        f"ass={rel_ass}[v];"
+        f"scale=1080:1920:flags=lanczos,setsar=1[v];"
         f"[0:a]atempo={speed}[a]"
     )
 
@@ -594,7 +634,7 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str, out_vide
     ]
     subprocess.run(reframe_cmd, check=True, cwd=REPO_ROOT)
 
-    # 7. Append Outro Video
+    # 7. Append Outro Video to clean video
     has_outro = outro_path and os.path.exists(outro_path)
     if has_outro:
         log_fn(f"🔗 Appending Outro: {os.path.basename(outro_path)}...")
@@ -613,12 +653,26 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str, out_vide
             "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-preset", "fast", "-crf", "18",
             "-c:a", "aac", "-b:a", "192k",
-            out_video
+            clean_out_video
         ]
         subprocess.run(final_cmd, check=True)
     else:
-        if os.path.exists(out_video):
-            os.remove(out_video)
-        os.rename(reframed_path, out_video)
+        if os.path.exists(clean_out_video):
+            os.remove(clean_out_video)
+        shutil.copyfile(reframed_path, clean_out_video)
 
-    log_fn(f"✅ Finished Clip {clip_id}: {os.path.basename(out_video)}")
+    # 8. Burn ASS Subtitles (Hook + Karaoke) onto clean_out_video -> subtitled_out_video
+    log_fn("🎨 Burning eye-catching Hook and Karaoke captions...")
+    rel_ass = os.path.relpath(ass_path, REPO_ROOT).replace("\\", "/")
+    burn_cmd = [
+        "ffmpeg", "-y", "-loglevel", "warning",
+        "-i", clean_out_video,
+        "-vf", f"ass={rel_ass}",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:a", "copy",
+        subtitled_out_video
+    ]
+    subprocess.run(burn_cmd, check=True, cwd=REPO_ROOT)
+
+    log_fn(f"✅ Finished Clip {clip_id}: {os.path.basename(subtitled_out_video)}")
+    return words, full_text, language
