@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from clip_selection import (clip_count_targets, clip_duration_bounds,
                             lookup_model_prices)
+from selection_quality import selection_quality_guidance
 
 load_dotenv()
 
@@ -607,6 +608,7 @@ def main() -> int:
         fmt["min_clips"], fmt["max_clips"] = clip_count_targets(len(payload.get("windows") or []))
         fmt["min_secs"], fmt["max_secs"] = clip_duration_bounds()
     prompt = template.format(**fmt)
+    prompt += selection_quality_guidance(args.mode, os.environ.get("SHORTS_SELECTION_QUALITY"))
 
     _log(f"🤖 Gemini worker request: mode={args.mode} strategy={args.strategy} model={model_name} items={len(payload.get('windows', []))}")
     response = client.models.generate_content(

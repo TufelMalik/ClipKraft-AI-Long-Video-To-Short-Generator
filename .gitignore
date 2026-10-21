@@ -57,3 +57,11 @@ skills-lock.json
 
 # Instrucciones locales con datos de infra (repo público)
 CLAUDE.local.md
+
+# Media & working directories
+*.wav
+*.tflite
+*.ass
+work_*/
+inspection_frames/
+sample_*.jpg
