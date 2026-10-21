@@ -1,184 +1,163 @@
 # ClipKraft — AI Long Video To Short Generator
 
-ClipKraft converts long-form videos into vertical clips with AI moment detection, smart reframing, subtitles, hook text, and optional dubbing. This repository is configured for a simple Docker-based Windows setup.
+ClipKraft converts long-form videos into high-retention 9:16 vertical shorts with AI moment detection, manual timestamp clipping, active speaker tracking, cinematic motion zooms, animated karaoke subtitles, hook banners, and seamless social publishing.
 
-> This is a public repository. Never commit API keys, `.env`, credential files, uploaded videos, or generated output.
+> **Security Notice**: This repository is public. Never commit API keys, `.env`, keystores, credentials, uploaded videos, or generated outputs.
 
-## What you need
+---
 
-- Windows 10 or Windows 11
-- 8 GB RAM minimum; 16 GB recommended
-- At least 15–20 GB free disk space for Docker images and AI models
-- Git
-- Docker Desktop with the WSL 2 backend
-- Hardware virtualization enabled in BIOS/UEFI (`Intel VT-x` or `AMD SVM`)
-- A Google Gemini API key for AI features
+## 🌟 Key Features
 
-Optional services:
+### 1. Dual-Mode Workflow
+- **Open-Shorts (AI Mode)**: Upload a video or paste a YouTube URL. AI identifies viral moments, selects layouts, transcribes speech, and extracts clips automatically.
+- **Edit Video (Manual Mode)**: Full creator control over exact viral timestamps:
+  - Add multiple start and end timestamps (`00:15` to `01:30`, `90.5s`, `02:15.5`, etc.).
+  - Custom viral hook text per clip.
+  - Automatic **1.20x speedup** with pitch-preserved audio.
+  - Automatic **Outro bumper video** appended seamlessly to every clip.
 
-- `fal.ai` for AI actors and generated video
-- ElevenLabs for voiceover and dubbing
-- Upload-Post for direct social publishing
+### 2. Smart AI Framing & Active Speaker Tracking
+- Uses **MediaPipe Tasks Vision** (`blaze_face_short_range.tflite`) and **YOLO** fallback.
+- Decodes audio energy and visual lip activity to track active speakers dynamically in 9:16 vertical framing without jerky jumps.
 
-## 1. Clone the repository
+### 3. Professional Motion Zooms
+- Procedural **Cinematic Zoom In & Zoom Out Animations** (punch-zooms at cuts and smooth camera drift) to boost audience retention.
 
-Open PowerShell and run:
+### 4. Viral Hooks & Karaoke Subtitles
+- **Eye-Catching Hook Banner**: Top center banner for the first 3.0s styled with **bold yellow text on a solid black background box**.
+- **Word-by-Word Karaoke Subtitles**: Powered by **Faster-Whisper** with zero-gap flicker elimination and dynamic pop scaling on the active spoken word.
+- **Full Non-Destructive Restyling**: Clean baseline videos are preserved alongside subtitled cuts, enabling instant restyling, font/color adjustments, or custom caption text editing in the Subtitle Modal without double-burning.
+
+### 5. Extended Retention & Optional Social Keys
+- **1-Week Retention**: Jobs and generated shorts are kept for **7 days (604,800 seconds)** before cleanup.
+- **Decoupled Social Publishing**: An Upload-Post API key is **never required** to generate clips or use the editor. It is only prompted when you choose to post/schedule clips to TikTok, Instagram Reels, or YouTube Shorts.
+
+---
+
+## 💻 System Requirements
+
+- **Operating System**: Windows 10 / 11, Linux, or macOS
+- **Memory**: 8 GB RAM minimum (16 GB recommended)
+- **Disk Space**: 15–20 GB free space for models, virtual environment, and FFmpeg caches
+- **Software**: Python 3.10–3.12, Node.js 18+, FFmpeg with `libass` support, Git
+- **AI Keys**: Google Gemini API key (free tier available at [Google AI Studio](https://aistudio.google.com/app/apikey))
+
+---
+
+## 🚀 Quick Start (Native Windows — 1-Click)
+
+The fastest way to run ClipKraft on Windows without Docker:
+
+### 1. Clone & Setup
 
 ```powershell
 git clone https://github.com/TufelMalik/ClipKraft-AI-Long-Video-To-Short-Generator.git "D:\Open Short"
 cd "D:\Open Short"
 ```
 
-If the folder already exists and contains this repository:
+### 2. Configure Environment (`.env`)
 
-```powershell
-cd "D:\Open Short"
-git pull
-```
-
-## 2. Install Docker and WSL 2
-
-Install Docker Desktop. If WSL 2 is not installed, open PowerShell as Administrator and run:
-
-```powershell
-wsl --install
-```
-
-Restart Windows. Open Docker Desktop, complete its first-run setup, and wait until **Docker Engine is running**.
-
-If Docker reports that virtualization is disabled, enable `Intel VT-x`, `Intel Virtualization Technology`, or `AMD SVM` in BIOS/UEFI.
-
-## 3. Create the local configuration
-
-Create your private `.env` file:
+Create your `.env` file from `.env.example`:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Open `.env` in a text editor and add:
+Open `.env` and set your Gemini API key:
 
 ```dotenv
 GEMINI_API_KEY=your_gemini_api_key_here
+JOB_RETENTION_SECONDS=604800
 ```
 
-Do not add quotes unless they are part of the actual value. Do not paste the key into `README.md`, source code, screenshots, issues, or commits.
+### 3. Run with 1-Click Launcher
 
-The included Docker Compose configuration loads `.env` into the backend container. `.env` and common local key files are excluded by `.gitignore`.
-
-## 4. Start OpenShorts
-
-From `D:\Open Short`, run:
+Double-click or run:
 
 ```powershell
+.\run.bat
+```
+
+This automatically:
+1. Detects or creates the Python virtual environment (`.venv`).
+2. Installs backend dependencies (`faster-whisper`, `mediapipe`, `ultralytics`, `fastapi`, `uvicorn`, etc.).
+3. Installs frontend dependencies (`npm install` in `dashboard/`).
+4. Launches the FastAPI backend on **`http://localhost:8000`**.
+5. Launches the Vite dashboard on **`http://localhost:5173`**.
+
+---
+
+## 🐳 Docker Deployment (Alternative)
+
+If you prefer running via Docker Desktop with WSL 2:
+
+```powershell
+# 1. Build and start containers
 docker compose up -d --build
-```
 
-The first build can take several minutes because Docker downloads images, packages, and AI dependencies.
-
-Open the dashboard:
-
-```text
+# 2. Open dashboard
 http://localhost:5175
-```
 
-Backend API:
-
-```text
-http://localhost:8000
-```
-
-## 5. Verify the installation
-
-Check running containers:
-
-```powershell
-docker compose ps
-```
-
-Follow logs without displaying the contents of `.env`:
-
-```powershell
+# 3. View logs
 docker compose logs -f
 ```
 
-Expected services:
+---
 
-- `openshorts-backend`
-- `openshorts-frontend`
-- `openshorts-renderer`
+## 🛠️ Configuration Reference (`.env`)
 
-## Everyday commands
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | *Required* | API key for Gemini models (moment picking, titles, descriptions). |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Model for transcript analysis and scoring. |
+| `JOB_RETENTION_SECONDS` | `604800` | Duration to keep generated clips and jobs before cleanup (7 days / 1 week). |
+| `WHISPER_MODEL` | `base` | Faster-Whisper model size (`base`, `small`, `medium`). |
+| `WHISPER_DEVICE` | `cpu` | Device for whisper (`cpu` or `cuda`). |
+| `WHISPER_COMPUTE` | `int8` | Compute type for whisper (`int8` or `float16`). |
+| `UPLOAD_POST_API_KEY` | *Optional* | Key for Upload-Post social publishing (prompted only on post). |
 
-Start:
+---
 
-```powershell
-docker compose up -d
+## 📁 Repository Structure
+
+```
+D:\Open Short\
+├── app.py                      # FastAPI application & REST endpoints
+├── run.bat                     # 1-click Windows native launcher
+├── .env                        # Local environment variables & API keys
+├── backend\
+│   ├── pipeline\
+│   │   ├── manual_clip_pipeline.py # Manual clipping, face tracking, zoom & ASS subtitles
+│   │   ├── subtitles.py            # OpenShorts ASS/SRT caption rendering engine
+│   │   ├── active_speaker.py       # Audio-visual active face tracking
+│   │   └── recut.py                # EDL recut & virtual transcript engine
+│   └── services\
+│       └── manual_clip_worker.py   # Background job executor for manual clips
+├── dashboard\                  # React + Vite frontend dashboard
+│   ├── src\
+│   │   ├── App.jsx             # Main dashboard shell & tab controller
+│   │   └── components\
+│   │       ├── ManualClipTab.jsx   # Dedicated Edit Video tab UI
+│   │       ├── ResultCard.jsx      # Video card with player, subtitle modal & post modal
+│   │       └── SubtitleModal.jsx   # Interactive word caption editor & style preview
+└── tests\                      # Pipeline test suites
 ```
 
-Stop:
+---
 
-```powershell
-docker compose down
-```
+## 🔒 Security Best Practices
 
-Restart after changing `.env`:
-
-```powershell
-docker compose up -d --force-recreate
-```
-
-Rebuild after updating the code:
-
-```powershell
-git pull
-docker compose up -d --build
-```
-
-## Troubleshooting
-
-### Docker daemon is not running
-
-Open Docker Desktop and wait until it reports that the engine is running, then retry:
-
-```powershell
-docker compose up -d --build
-```
-
-### WSL or virtualization error
-
-Restart Windows after installing WSL. If the error remains, enable virtualization in BIOS/UEFI and confirm Docker Desktop is using the WSL 2 backend.
-
-### Port already in use
-
-Open `docker-compose.yml` and change the host side of the conflicting mapping. For example, change `5175:5173` to `5176:5173`, then open `http://localhost:5176`.
-
-### Gemini key is not detected
-
-Confirm `.env` contains a non-empty `GEMINI_API_KEY` entry, then recreate the backend:
-
-```powershell
-docker compose up -d --force-recreate backend
-```
-
-Never paste the key into terminal output or public support messages.
-
-## Security checklist before every push
-
+Before pushing code:
 ```powershell
 git status --short
 git diff --check
-git check-ignore -v .env Gemini_API_KEY.txt
+git check-ignore -v .env
 ```
+- Never commit `.env`, `*.jks`, `*.keystore`, or secret keys.
+- Upload keys and keystore files are write-protected and strictly excluded by `.gitignore`.
 
-Before committing, confirm that no secret file is staged:
+---
 
-```powershell
-git diff --cached --name-only
-```
+## 📄 License & Credits
 
-If a secret was ever committed, removing the file is not enough: revoke/rotate the credential immediately and clean the Git history before publishing.
-
-## Credits
-
-This project is based on the open-source [OpenShorts](https://github.com/mutonby/openshorts) project. Refer to the upstream repository for full feature documentation, licensing, and advanced deployment options.
+Based on the open-source [OpenShorts](https://github.com/mutonby/openshorts) project. Enhanced with custom manual viral clipping, motion zoom animations, active speaker framing, and non-destructive subtitle synchronization.
