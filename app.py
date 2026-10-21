@@ -3533,6 +3533,91 @@ def _locate_source(job_id: str):
     return None
 
 
+@app.post("/api/manual-clip/process")
+async def manual_clip_endpoint(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    video_path: Optional[str] = Form(None),
+    url: Optional[str] = Form(None),
+    timestamps: Optional[str] = Form(None),
+    speed: Optional[float] = Form(1.20),
+    outro_path: Optional[str] = Form(None),
+):
+    from manual_clip_worker import run_manual_clips_job, DEFAULT_OUTRO
+
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = await request.json()
+        video_path = body.get("video_path")
+        url = body.get("url")
+        timestamps = body.get("timestamps")
+        speed = float(body.get("speed", 1.20) or 1.20)
+        outro_path = body.get("outro_path")
+
+    # Parse timestamps JSON
+    clips_config = []
+    if isinstance(timestamps, str):
+        try:
+            clips_config = json.loads(timestamps)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid timestamps JSON format")
+    elif isinstance(timestamps, list):
+        clips_config = timestamps
+    else:
+        raise HTTPException(status_code=400, detail="Must provide timestamps list")
+
+    if not clips_config:
+        raise HTTPException(status_code=400, detail="At least one timestamp clip is required")
+
+    job_id = f"manual_{uuid.uuid4().hex[:8]}"
+    job_output_dir = os.path.join(OUTPUT_DIR, job_id)
+    os.makedirs(job_output_dir, exist_ok=True)
+
+    input_path = None
+    if file:
+        safe_name = os.path.basename(file.filename or "video.mp4") or "video.mp4"
+        input_path = os.path.join(UPLOAD_DIR, f"{job_id}_{safe_name}")
+        with open(input_path, "wb") as buffer:
+            while content := await file.read(1024 * 1024):
+                buffer.write(content)
+    elif video_path and os.path.exists(video_path):
+        input_path = video_path
+    elif url:
+        input_path = os.path.join(UPLOAD_DIR, f"{job_id}_download.mp4")
+        dl_cmd = ["yt-dlp", "-f", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b", "-o", input_path, url]
+        res = subprocess.run(dl_cmd, capture_output=True)
+        if res.returncode != 0 or not os.path.exists(input_path):
+            raise HTTPException(status_code=400, detail="Failed to download video from URL")
+    else:
+        raise HTTPException(status_code=400, detail="Must provide video file, video_path, or URL")
+
+    resolved_outro = outro_path if (outro_path and os.path.exists(outro_path)) else DEFAULT_OUTRO
+
+    jobs[job_id] = {
+        'status': 'queued',
+        'logs': _TimedLog([f"Manual clip job {job_id} queued with {len(clips_config)} clips."]),
+        'output_dir': job_output_dir,
+        'ready_files': {},
+        'result': None,
+        'user_id': await _owner_id(request),
+    }
+
+    def _worker():
+        run_manual_clips_job(
+            job_id=job_id,
+            src_video=input_path,
+            clips_config=clips_config,
+            output_dir=job_output_dir,
+            speed=speed,
+            outro_path=resolved_outro,
+            jobs_dict=jobs
+        )
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    return {"job_id": job_id, "status": "queued"}
+
+
 # How long a signed source URL stays valid. Long enough to survive an editing
 # session and a page reload, short enough that a link leaked through a log, a
 # referer or a shared screenshot is dead by the time anyone tries it.

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Sparkles, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket } from 'lucide-react';
+import { Upload, Sparkles, Scissors, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
+import ManualClipTab from './components/ManualClipTab';
 import McpConnectCard from './components/McpConnectCard';
 import ResultCard from './components/ResultCard';
 import ProcessingAnimation from './components/ProcessingAnimation';
@@ -363,6 +364,7 @@ function App() {
   });
   const [processingMedia, setProcessingMedia] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, settings
+  const [uploadMode, setUploadMode] = useState('openshorts'); // 'openshorts' | 'edit-video'
   // Mobile only: the full nav lives in a drawer behind the header's menu button.
   const [navOpen, setNavOpen] = useState(false);
   // Reopened-project state (paid mode): per-clip {index, server_file, active_layers}
@@ -1023,6 +1025,22 @@ function App() {
     } catch (e) {
       alert('Could not open the calendar. Please try again.');
     }
+  };
+
+  const handleManualJobStarted = (manualJobId, media) => {
+    clearPendingJob();
+    setJobId(manualJobId);
+    setStatus('processing');
+    setJobError('');
+    setLogs(["Starting manual clipping job with custom timestamps..."]);
+    setLogTimes([Date.now() / 1000]);
+    setResults(null);
+    setProcessingMedia(media);
+    setQualityGate(null);
+    setProjectState(null);
+    setNoSource(false);
+    setPartialJob(null);
+    setFirstVideoJob(false);
   };
 
   const handleProcess = async (data, forceLowQuality = false) => {
@@ -2027,7 +2045,31 @@ function App() {
                   )}
                 </div>
 
-                <MediaInput onProcess={handleProcess} isProcessing={status === 'processing'} />
+                {/* Mode Selector Tabs */}
+                <div className="flex items-center justify-center p-1 bg-paper3/70 rounded-card border border-rule max-w-sm sm:max-w-md mx-auto shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setUploadMode('openshorts')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-input text-xs font-medium transition-all ${uploadMode === 'openshorts' ? 'bg-paper text-ink shadow-sm border border-rule' : 'text-muted hover:text-ink2'}`}
+                  >
+                    <Sparkles size={14} className={uploadMode === 'openshorts' ? 'text-brass' : ''} />
+                    <span>Open-Shorts (AI)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadMode('edit-video')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-input text-xs font-medium transition-all ${uploadMode === 'edit-video' ? 'bg-paper text-ink shadow-sm border border-rule' : 'text-muted hover:text-ink2'}`}
+                  >
+                    <Scissors size={14} className={uploadMode === 'edit-video' ? 'text-brass' : ''} />
+                    <span>Edit Video (Manual)</span>
+                  </button>
+                </div>
+
+                {uploadMode === 'openshorts' ? (
+                  <MediaInput onProcess={handleProcess} isProcessing={status === 'processing'} />
+                ) : (
+                  <ManualClipTab onJobStarted={handleManualJobStarted} isProcessing={status === 'processing'} />
+                )}
 
                 <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 text-muted text-xs sm:text-sm">
                   <span className="flex items-center gap-2"><Youtube size={16} /> YouTube</span>
