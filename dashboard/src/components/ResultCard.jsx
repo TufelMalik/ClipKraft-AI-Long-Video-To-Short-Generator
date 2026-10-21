@@ -668,7 +668,7 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
     const handlePost = async () => {
         if (!canPost) {
-            setPostResult({ success: false, msg: "Missing API Key or User ID." });
+            setPostResult({ success: false, msg: "Upload-Post API key is required to post this video. Please configure it in Settings." });
             return;
         }
 
@@ -1053,6 +1053,16 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                         <button onClick={handleConnectAccounts} className="btn-primary w-full">
                             <Link2 size={16} /> connect accounts
                         </button>
+                    ) : !canPost ? (
+                        <button
+                            onClick={() => {
+                                setShowModal(false);
+                                if (onConnectSocials) onConnectSocials();
+                            }}
+                            className="btn-primary w-full"
+                        >
+                            <KeyRound size={16} /> set upload-post key in settings
+                        </button>
                     ) : (
                         <button
                             onClick={handlePost}
@@ -1065,9 +1075,20 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 }
             >
                 {!canPost && (
-                    <div className="mb-4 px-3 py-2 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex items-start gap-2">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        <div className="lowercase">configure api key in settings first.</div>
+                    <div className="mb-4 px-3 py-2.5 rounded-input text-xs text-warn bg-[color-mix(in_oklab,var(--color-warn)_10%,transparent)] flex flex-col gap-2">
+                        <div className="flex items-start gap-2">
+                            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                            <div>Set your Upload-Post API key and User ID in Settings to publish clips directly to social media.</div>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setShowModal(false);
+                                if (onConnectSocials) onConnectSocials();
+                            }}
+                            className="btn-quiet text-xs py-1 px-2.5 self-start"
+                        >
+                            Configure in Settings
+                        </button>
                     </div>
                 )}
 
