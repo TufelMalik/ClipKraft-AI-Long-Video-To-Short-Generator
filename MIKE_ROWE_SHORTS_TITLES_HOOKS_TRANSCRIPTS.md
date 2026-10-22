@@ -1,15 +1,13 @@
-# Mike Rowe YouTube Shorts: Titles, Hooks & Full Transcripts
+# Mike Rowe YouTube Shorts: Titles, Hooks & Full Transcripts (Clips 03 – 06)
 
-Comprehensive production master file containing verified **Titles (High-CTR)**, **Visual Hook Banners**, **Verbal Hooks**, **Full Transcripts**, and **Recommended Publishing Schedules** for all 6 Mike Rowe Shorts.
+Upcoming release schedule containing verified **Titles (High-CTR)**, **Visual Hook Banners**, **Verbal Hooks**, **Full Transcripts**, and **Recommended Publishing Schedules** for Mike Rowe Shorts (Clips 03 – 06).
 
 ---
 
-## 📌 Series Quick Master Table
+## 📌 Master Schedule & Packaging Overview
 
-| Clip | Topic | Primary YouTube Title (Verified CTR) | Visual Hook Banner | Recommended Post Schedule | Final Video File |
+| Clip | Topic | Primary YouTube Title (Verified CTR) | Visual Hook Banner (0–3s) | Recommended Post Schedule | Final Video File |
 |:---:|---|---|---|---|---|
-| **01** | Overlooked Trade Jobs | **Mike Rowe: The 6-Figure Career Nobody Wants** | `BORING JOB. REAL OPPORTUNITY?` | *Already Published / Live* | [`01 - Mike Rowe [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/01%20-%20Mike%20Rowe%20-%20Find%20Opportunity%20Where%20Others%20Won't%20Look%20[SHORTS_FINAL].mp4) |
-| **02** | Status-Driven Spending | **Mike Rowe: The #1 Status Trap Keeping You Broke** | `LOOKING RICH IS EXPENSIVE.` | *Already Published / Live* | [`02 - Looking Rich vs Building Wealth [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/02%20-%20Looking%20Rich%20vs%20Building%20Wealth%20-%20Mike%20Rowe%20[SHORTS_FINAL].mp4) |
 | **03** | Spending vs Earning | **Mike Rowe: Why Making $700K Still Feels Broke** | `MORE INCOME. SAME PROBLEM?` | **Thu, Oct 22, 2026 @ 7:00 PM IST** *(9:30 AM EST)* | [`03 - Earning More Isn't the Whole Answer [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/03%20-%20Earning%20More%20Isn't%20the%20Whole%20Answer%20-%20Mike%20Rowe%20[SHORTS_FINAL].mp4) |
 | **04** | Trust Before the Sale | **Mike Rowe: The 3-Hour Shift That Changed My Career** | `TRUST BEFORE THE SALE.` | **Fri, Oct 23, 2026 @ 7:30 PM IST** *(10:00 AM EST)* | [`04 - What QVC Taught Mike Rowe About Trust [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/04%20-%20What%20QVC%20Taught%20Mike%20Rowe%20About%20Trust%20[SHORTS_FINAL].mp4) |
 | **05** | Passion vs Skill | **Mike Rowe: The #1 Advice That Ruins Most Careers** | `PASSION ISN'T THE WHOLE PLAN.` | **Sat, Oct 24, 2026 @ 6:00 PM IST** *(8:30 AM EST)* | [`05 - Passion vs Skill [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/05%20-%20Passion%20vs%20Skill%20-%20Mike%20Rowe's%20Career%20Lesson%20[SHORTS_FINAL].mp4) |
@@ -18,65 +16,6 @@ Comprehensive production master file containing verified **Titles (High-CTR)**, 
 ---
 
 ## 🎬 Detailed Clip Breakdown
-
-### Clip 01: The 6-Figure Career Nobody Wants
-* **Topic:** Overlooked business & trade opportunities
-* **Source Clip:** [`01 - Mike Rowe - Find Opportunity Where Others Won't Look.mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/01%20-%20Mike%20Rowe%20-%20Find%20Opportunity%20Where%20Others%20Won't%20Look.mp4)
-* **Final Rendered Short:** [`01 - Mike Rowe - Find Opportunity Where Others Won't Look [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/01%20-%20Mike%20Rowe%20-%20Find%20Opportunity%20Where%20Others%20Won't%20Look%20[SHORTS_FINAL].mp4)
-* **Duration:** 35.8s *(at 1.20x speed + 3.5s outro)*
-
-#### Packaging & Metadata:
-* **Primary Title:** `Mike Rowe: The 6-Figure Career Nobody Wants` *(Score: 98/100)*
-* **Alternative Title A:** `The High-Paying Job Most People Ignore - Mike Rowe`
-* **Alternative Title B:** `Why Boring Jobs Make the Most Money - Mike Rowe`
-* **Visual Hook Banner (Top Center, 0–3s):** `BORING JOB. REAL OPPORTUNITY?`
-* **Verbal Hook (First 4s):** *"What's the job that made the most money that would shock people?"*
-* **Hashtags:** `#Shorts #MikeRowe #CareerAdvice #Money #Entrepreneurship #SkilledTrades`
-
-#### Full Transcript:
-> **Host (00:00 – 00:04):**  
-> *"What's the job that made the most money that would shock people?"*
-> 
-> **Mike Rowe (00:04 – 00:38):**  
-> *"The answer will be one of the segments that was really about entrepreneurship. Again, it's the story nobody tells, but the business of mastering a trade and taking the reverse commute. In other words, seeing where everybody else is going and totally taking your passion and your dreams and setting them off to the side and saying, 'No, I'm going in the other direction. I'm going to find the opportunity. I'm going to get great at it, and then I'm going to find a way to love it.'"*
-
----
-
-### Clip 02: The #1 Status Trap Keeping You Broke
-* **Topic:** Status-driven consumerism & the garage trap
-* **Source Clip:** [`02 - Looking Rich vs Building Wealth - Mike Rowe.mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/02%20-%20Looking%20Rich%20vs%20Building%20Wealth%20-%20Mike%20Rowe.mp4)
-* **Final Rendered Short:** [`02 - Looking Rich vs Building Wealth - Mike Rowe [SHORTS_FINAL].mp4`](file:///C:/Youtube%20Channels/Videos/Temp%20Videos/02%20-%20Looking%20Rich%20vs%20Building%20Wealth%20-%20Mike%20Rowe%20[SHORTS_FINAL].mp4)
-* **Duration:** 1m 49s *(at 1.20x speed + 3.5s outro)*
-
-#### Packaging & Metadata:
-* **Primary Title:** `Mike Rowe: The #1 Status Trap Keeping You Broke` *(Score: 98/100)*
-* **Alternative Title A:** `Mike Rowe Exposes the Lie of Looking Rich`
-* **Alternative Title B:** `Why Looking Wealthy Is Keeping You Broke`
-* **Visual Hook Banner (Top Center, 0–3s):** `LOOKING RICH IS EXPENSIVE.`
-* **Verbal Hook (First 5s):** *"Interestingly, I think the hinge upon which your question relies is status."*
-* **Hashtags:** `#Shorts #MikeRowe #MoneyMindset #Wealth #FinancialFreedom #Status`
-
-#### Full Transcript:
-> **Mike Rowe (00:00 – 01:10):**  
-> *"Interestingly, I think the hinge upon which your question relies is status. You know, we are beset today with constant reminders and challenges and invitations to up our game, whether it's the color of our credit card or the type of vehicle we're driving. It's the oldest story in the world. But the status is this idea—whether it's caused by an influencer or whether it's just caused by the proliferation of proof—I mean, it's everywhere around us. And so people are feeling lesser than all the time. Constantly.*  
->  
-> *That's the message that I think we're sending, maybe unintentionally or intentionally, it doesn't really matter. But the country's filled with people who feel like they're not participating in the dream somehow or another. And I think it's self-inflicted, by and large. I think they've confused living life to the hilt with living life to the hilt of spending."*
-> 
-> **Host (01:10 – 01:11):**  
-> *"Explain that."*
-> 
-> **Mike Rowe (01:11 – 01:14):**  
-> *"Well, what's in your garage right now that you're not using?"*
-> 
-> **Host (01:14 – 01:20):**  
-> *"Me? Not at you, but metaphorically. I have a 2000 Mazda Miata that I should drive more often."*
-> 
-> **Mike Rowe (01:20 – 02:07):**  
-> *"Well, I don't mean the car. I mean all the other stuff. If you go into the average garage today of the average American—I'm making it up, sure, I don't know that this is true, but anecdotally—I mean, there's ski equipment, there's a snowmobile, maybe there's a kayak, maybe there's a bow and arrow... you can just go down the list.*  
->  
-> *I mean, the stuff we buy and use once or twice and then store, right? I've just seen it so many times over and over and over. People who are living some kind of status life, some version of prosperity that's defined by the stuff that's in their garage that they rarely use. It's not just a car. It could be the size of the garage itself. It could be the house itself."*
-
----
 
 ### Clip 03: Why Making $700K Still Feels Broke
 * **Topic:** Spending problem vs earning problem & high-income paycheck to paycheck
