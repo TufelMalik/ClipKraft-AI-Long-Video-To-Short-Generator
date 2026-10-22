@@ -1,15 +1,20 @@
 import os
 import sys
 import json
-import wave
 import subprocess
 import cv2
 import numpy as np
 
+# Ensure UTF-8 output on Windows consoles
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 # MediaPipe Tasks Face Detection
 import mediapipe as mp
-from mediapipe.tasks import python
-from mediapipe.tasks.python import vision
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
 
 # YOLO Fallback
 from ultralytics import YOLO
@@ -27,10 +32,9 @@ CLIPS = [
         "output": r"C:\Youtube Channels\Videos\Temp Videos\01 - Mike Rowe - Find Opportunity Where Others Won't Look [SHORTS_FINAL].mp4",
         "hook": "BORING JOB. REAL OPPORTUNITY?",
         "words_json": r"d:\Open Short\clip1_words.json",
-        # Required emphasis moments for slow zoom in / out (in source seconds)
         "zoom_beats": [
-            (9.5, 15.5),   # Mastering a trade & reverse commute
-            (26.5, 36.5)   # Going in the other direction & find opportunity
+            (9.5, 15.5),
+            (26.5, 36.5)
         ]
     },
     {
@@ -39,12 +43,58 @@ CLIPS = [
         "output": r"C:\Youtube Channels\Videos\Temp Videos\02 - Looking Rich vs Building Wealth - Mike Rowe [SHORTS_FINAL].mp4",
         "hook": "LOOKING RICH IS EXPENSIVE.",
         "words_json": r"d:\Open Short\clip2_words.json",
-        # Required emphasis moments for slow zoom in / out (in source seconds)
         "zoom_beats": [
-            (21.0, 31.0),   # People feeling lesser than all the time
-            (47.0, 58.0),   # Confused living life to the hilt of spending
-            (70.5, 77.0),   # What's in your garage right now?
-            (91.0, 107.0)   # Status life defined by stuff in garage
+            (21.0, 31.0),
+            (47.0, 58.0),
+            (70.5, 77.0),
+            (91.0, 107.0)
+        ]
+    },
+    {
+        "id": "03",
+        "input": r"C:\Youtube Channels\Videos\Temp Videos\03 - Earning More Isn't the Whole Answer - Mike Rowe.mp4",
+        "output": r"C:\Youtube Channels\Videos\Temp Videos\03 - Earning More Isn't the Whole Answer - Mike Rowe [SHORTS_FINAL].mp4",
+        "hook": "MORE INCOME. SAME PROBLEM?",
+        "words_json": r"d:\Open Short\clip3_words.json",
+        "zoom_beats": [
+            (9.0, 17.5),
+            (25.0, 36.0),
+            (55.0, 68.0)
+        ]
+    },
+    {
+        "id": "04",
+        "input": r"C:\Youtube Channels\Videos\Temp Videos\04 - What QVC Taught Mike Rowe About Trust.mp4",
+        "output": r"C:\Youtube Channels\Videos\Temp Videos\04 - What QVC Taught Mike Rowe About Trust [SHORTS_FINAL].mp4",
+        "hook": "TRUST BEFORE THE SALE.",
+        "words_json": r"d:\Open Short\clip4_words.json",
+        "zoom_beats": [
+            (0.0, 10.0),
+            (23.0, 35.0),
+            (45.0, 56.0)
+        ]
+    },
+    {
+        "id": "05",
+        "input": r"C:\Youtube Channels\Videos\Temp Videos\05 - Passion vs Skill - Mike Rowe's Career Lesson.mp4",
+        "output": r"C:\Youtube Channels\Videos\Temp Videos\05 - Passion vs Skill - Mike Rowe's Career Lesson [SHORTS_FINAL].mp4",
+        "hook": "PASSION ISN'T THE WHOLE PLAN.",
+        "words_json": r"d:\Open Short\clip5_words.json",
+        "zoom_beats": [
+            (16.0, 30.0),
+            (44.0, 58.0)
+        ]
+    },
+    {
+        "id": "06",
+        "input": r"C:\Youtube Channels\Videos\Temp Videos\06 - Mike Rowe on Choosing Difficult Work.mp4",
+        "output": r"C:\Youtube Channels\Videos\Temp Videos\06 - Mike Rowe on Choosing Difficult Work [SHORTS_FINAL].mp4",
+        "hook": "IS COMFORT HOLDING YOU BACK?",
+        "words_json": r"d:\Open Short\clip6_words.json",
+        "zoom_beats": [
+            (0.0, 12.0),
+            (28.0, 44.0),
+            (60.0, 75.0)
         ]
     }
 ]
@@ -54,11 +104,6 @@ def load_words(json_path):
         return json.load(f)
 
 def build_ass_subtitles(words, hook_text, duration_scaled, ass_path, speed=1.0):
-    """
-    Builds ASS subtitle file with:
-    - 3.0s top hook banner with a solid black background box and larger text
-    - Word-by-word animated karaoke captions scaled to playback speed
-    """
     scaled_words = []
     for w in words:
         scaled_words.append({
@@ -70,7 +115,7 @@ def build_ass_subtitles(words, hook_text, duration_scaled, ass_path, speed=1.0):
     blocks = []
     current_block = []
     current_len = 0
-    
+
     for w in scaled_words:
         word_txt = w['word']
         if not word_txt:
@@ -110,8 +155,8 @@ Style: Hook,Impact,20,&H0000E5FF&,&H0000E5FF&,&H00000000&,&H00000000,1,0,0,0,100
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
-    
-    # 3.0s Hook Banner with solid black background box
+
+    # 3.0s Hook Banner with solid black background box and warm yellow text
     hook_end = min(3.0, duration_scaled)
     events.append(f"Dialogue: 1,0:00:00.00,{format_ts(hook_end)},Hook,,0,0,0,,{hook_text}")
 
@@ -122,7 +167,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             w_end = active_word['end']
             if w_end <= w_start:
                 w_end = w_start + 0.12
-                
+
             line_parts = []
             for i, w in enumerate(block):
                 txt = w['word']
@@ -135,12 +180,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     with open(ass_path, "w", encoding="utf-8-sig") as f:
         f.write(header + "\n".join(events) + "\n")
-    print(f"   📝 Generated ASS subtitles at {speed}x with 3.0s black-box Hook: {ass_path}")
+    print(f"   [Subtitles] Generated ASS subtitles at {speed}x with 3.0s black-box Hook: {ass_path}")
 
 def compute_crop_trajectory(video_path, clip_info):
-    """
-    Computes smooth horizontal crop center X for 9:16 vertical video.
-    """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 29.97
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -151,13 +193,13 @@ def compute_crop_trajectory(video_path, clip_info):
     max_x = orig_w - crop_w  # 1750
     center_default_x = (orig_w - crop_w) // 2  # 875
 
-    base_options = python.BaseOptions(model_asset_path=MODEL_TFLITE)
-    options = vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.4)
-    mp_detector = vision.FaceDetector.create_from_options(options)
+    base_options = mp_python.BaseOptions(model_asset_path=MODEL_TFLITE)
+    options = mp_vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.35)
+    mp_detector = mp_vision.FaceDetector.create_from_options(options)
 
     yolo_model = YOLO(YOLO_MODEL_PATH)
 
-    print(f"   🎥 Analyzing {total_frames} frames ({total_frames/fps:.1f}s at {fps:.2f} fps)...")
+    print(f"   [Tracking] Analyzing {total_frames} frames ({total_frames/fps:.1f}s at {fps:.2f} fps)...")
 
     stride = 3
     small_w = 640
@@ -179,7 +221,7 @@ def compute_crop_trajectory(video_path, clip_info):
         buf = proc.stdout.read(frame_bytes)
         if len(buf) < frame_bytes:
             break
-        
+
         if f_idx % stride == 0:
             frame_small = np.frombuffer(buf, dtype=np.uint8).reshape((small_h, small_w, 3))
             rgb = cv2.cvtColor(frame_small, cv2.COLOR_BGR2RGB)
@@ -211,6 +253,18 @@ def compute_crop_trajectory(video_path, clip_info):
                         else:
                             best_face = faces[0]
                     best_target_x = best_face[0] - crop_w / 2
+                elif clip_info["id"] == "03":
+                    if t_sec < 8.0 or (8.9 <= t_sec < 17.5):
+                        best_face = max(faces, key=lambda f: f[0])
+                    else:
+                        if len(faces) >= 2:
+                            best_face = min(faces, key=lambda f: f[0])
+                        else:
+                            best_face = min(faces, key=lambda f: abs(f[0] - 1200))
+                    best_target_x = best_face[0] - crop_w / 2
+                else:
+                    best_face = min(faces, key=lambda f: abs(f[0] - 1200))
+                    best_target_x = best_face[0] - crop_w / 2
             else:
                 y_res = yolo_model(frame_small, classes=[0], verbose=False)
                 persons = []
@@ -222,15 +276,19 @@ def compute_crop_trajectory(video_path, clip_info):
                 if persons:
                     t_sec = f_idx / fps
                     if clip_info["id"] == "01":
-                        if t_sec < 3.8:
-                            target_cx = max(persons)
-                        else:
-                            target_cx = min(persons, key=lambda x: abs(x - 1200))
-                    else:
+                        target_cx = max(persons) if t_sec < 3.8 else min(persons, key=lambda x: abs(x - 1200))
+                    elif clip_info["id"] == "02":
                         if 70.0 <= t_sec <= 72.0 or 74.0 <= t_sec <= 80.5:
                             target_cx = max(persons)
                         else:
                             target_cx = min(persons)
+                    elif clip_info["id"] == "03":
+                        if t_sec < 8.0 or (8.9 <= t_sec < 17.5):
+                            target_cx = max(persons)
+                        else:
+                            target_cx = min(persons) if len(persons) >= 2 else min(persons, key=lambda x: abs(x - 1200))
+                    else:
+                        target_cx = min(persons, key=lambda x: abs(x - 1200))
                     best_target_x = target_cx - crop_w / 2
 
             if best_target_x is not None:
@@ -267,14 +325,10 @@ def compute_crop_trajectory(video_path, clip_info):
     return xs, fps
 
 def compute_slow_zoom_curve(n_frames, fps, zoom_beats, max_zoom=1.12):
-    """
-    Computes a gentle, slow zoom curve (1.0x -> max_zoom -> 1.0x) only at required emphasis beats.
-    Uses smoothstep easing for slow, natural camera push and pull.
-    """
     zooms = [1.0] * n_frames
-    rise_s = 1.3  # Slow push in
-    fall_s = 1.3  # Slow pull out
-    
+    rise_s = 1.3
+    fall_s = 1.3
+
     def smoothstep(t):
         t = max(0.0, min(1.0, t))
         return t * t * (3.0 - 2.0 * t)
@@ -293,13 +347,10 @@ def compute_slow_zoom_curve(n_frames, fps, zoom_beats, max_zoom=1.12):
                 else:
                     amt = 1.0 - smoothstep((dt - rise_s - hold_s) / fall_s)
                 zooms[f] = max(zooms[f], 1.0 + (max_zoom - 1.0) * amt)
-                
+
     return zooms
 
 def compute_crop_boxes(xs, zooms, crop_w=810, crop_h=1440, orig_w=2560, orig_h=1440):
-    """
-    Computes (w, h, x, y) for each frame, smoothly scaling around the tracked subject.
-    """
     boxes = []
     for i, x in enumerate(xs):
         z = zooms[i] if i < len(zooms) else 1.0
@@ -310,21 +361,16 @@ def compute_crop_boxes(xs, zooms, crop_w=810, crop_h=1440, orig_w=2560, orig_h=1
         w = max(2, min(w, orig_w))
         h = max(2, min(h, orig_h))
 
-        # Center zoom on the tracked subject
         cx = x + crop_w / 2.0
         cy = crop_h / 2.0
         nx = int(round(cx - w / 2.0))
         ny = int(round(cy - h / 2.0))
         nx = max(0, min(nx, orig_w - w))
         ny = max(0, min(ny, orig_h - h))
-        
         boxes.append((w, h, nx - (nx % 2), ny - (ny % 2)))
     return boxes
 
 def generate_sendcmd_boxes(boxes, fps, cmd_path, speed=1.0):
-    """
-    Emits deduped sendcmd lines for w, h, x, y.
-    """
     lines = []
     prev = None
     for i, box in enumerate(boxes):
@@ -344,7 +390,7 @@ def generate_sendcmd_boxes(boxes, fps, cmd_path, speed=1.0):
         prev = box
     with open(cmd_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    print(f"   🎯 Generated sendcmd instructions (slow zooms + tracking): {len(lines)} changes")
+    print(f"   [Sendcmd] Generated dynamic crop instructions: {len(lines)} changes")
 
 def process_clip(clip_info, speed=SPEED):
     clip_id = clip_info["id"]
@@ -354,19 +400,18 @@ def process_clip(clip_info, speed=SPEED):
     words_json = clip_info["words_json"]
     zoom_beats = clip_info.get("zoom_beats", [])
 
-    print(f"\n=======================================================")
-    print(f"🚀 PROCESSING CLIP {clip_id} (1.2x Speed + Slow Punch-In Zooms): {os.path.basename(in_video)}")
-    print(f"=======================================================")
+    print(f"\n=================================================================")
+    print(f"🚀 PROCESSING CLIP {clip_id} (1.2x Speed + Speaker Tracking + Motion Zooms): {os.path.basename(in_video)}")
+    print(f"=================================================================")
 
     workdir = os.path.join(r"d:\Open Short", f"work_{clip_id}")
     os.makedirs(workdir, exist_ok=True)
 
     words = load_words(words_json)
 
-    # 1. Compute crop trajectory and slow zoom curves (cached for speed)
     xs_cache_path = os.path.join(workdir, f"xs_{clip_id}.json")
     if os.path.exists(xs_cache_path):
-        print(f"   ⚡ Loaded cached tracking trajectory: {xs_cache_path}")
+        print(f"   [Tracking] Loaded cached tracking trajectory: {xs_cache_path}")
         with open(xs_cache_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             xs = data["xs"]
@@ -382,15 +427,12 @@ def process_clip(clip_info, speed=SPEED):
     zooms = compute_slow_zoom_curve(len(xs), fps, zoom_beats, max_zoom=1.12)
     boxes = compute_crop_boxes(xs, zooms)
 
-    # 2. Generate ASS Subtitles (scaled to speed, 3.0s hook with black bg box)
     ass_path = os.path.join(workdir, f"subtitles_{clip_id}.ass")
     build_ass_subtitles(words, hook_text, duration_scaled, ass_path, speed=speed)
 
-    # 3. Generate sendcmd file with dynamic w/h/x/y
     cmd_path = os.path.join(workdir, f"cmd_{clip_id}.txt")
     generate_sendcmd_boxes(boxes, fps, cmd_path, speed=speed)
 
-    # 4. Reframe to 9:16 (1080x1920) with slow zoom in/out, speed multiplier, and burned subtitles
     reframed_path = os.path.join(workdir, f"reframed_{clip_id}.mp4")
     safe_cmd_path = os.path.relpath(cmd_path, r"d:\Open Short").replace("\\", "/")
     safe_ass_path = os.path.relpath(ass_path, r"d:\Open Short").replace("\\", "/")
@@ -405,7 +447,7 @@ def process_clip(clip_info, speed=SPEED):
         f"[0:a]atempo={speed}[a]"
     )
 
-    print(f"   🎬 Rendering 9:16 vertical reframe at {speed}x with slow zooms & burned subtitles...")
+    print(f"   [Render] Rendering 9:16 vertical reframe at {speed}x with motion zooms & burned subtitles...")
     reframe_cmd = [
         "ffmpeg", "-y", "-loglevel", "warning",
         "-i", in_video,
@@ -415,11 +457,10 @@ def process_clip(clip_info, speed=SPEED):
         "-c:a", "aac", "-b:a", "192k",
         reframed_path
     ]
-    subprocess.run(reframe_cmd, check=True)
-    print(f"   ✅ Reframed, zoomed & subtitled: {reframed_path}")
+    subprocess.run(reframe_cmd, cwd=r"d:\Open Short", check=True)
+    print(f"   [Render] Reframed, zoomed & subtitled: {reframed_path}")
 
-    # 5. Append Outro Video (outro stays at natural 3.5s speed)
-    print(f"   🔗 Appending Outro: {OUTRO_PATH}...")
+    print(f"   [Outro] Appending Outro bumper: {OUTRO_PATH}...")
     concat_filter = (
         "[0:v]fps=30,setsar=1[v0];"
         "[1:v]fps=30,setsar=1[v1];"
@@ -438,10 +479,12 @@ def process_clip(clip_info, speed=SPEED):
         "-c:a", "aac", "-b:a", "192k",
         out_video
     ]
-    subprocess.run(final_cmd, check=True)
-    print(f"   🎉 COMPLETED CLIP {clip_id}: {out_video}")
+    subprocess.run(final_cmd, cwd=r"d:\Open Short", check=True)
+    print(f"   [Complete] Saved final video -> {out_video}")
 
 if __name__ == "__main__":
     for clip in CLIPS:
         process_clip(clip, speed=SPEED)
-    print(f"\n🏁 ALL CLIPS PROCESSED SUCCESSFULLY AT {SPEED}x SPEED WITH SLOW DYNAMIC ZOOMS!")
+    print(f"\n=================================================================")
+    print(f"🏁 ALL CLIPS PROCESSED SUCCESSFULLY AT {SPEED}x SPEED WITH ACTIVE SPEAKER TRACKING & MOTION ZOOMS!")
+    print(f"=================================================================")
