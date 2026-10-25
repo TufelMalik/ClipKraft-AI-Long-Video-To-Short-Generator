@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, Sparkles, Scissors, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket } from 'lucide-react';
+import { Upload, Sparkles, Scissors, Youtube, Instagram, Share2, ChevronDown, Check, Activity, LayoutDashboard, Settings, Plus, History, X, Terminal, Shield, LayoutGrid, Image, Globe, RotateCcw, Calendar, AlertTriangle, KeyRound, Bot, Users, Smartphone, ExternalLink, Copy, CheckCircle2, Mail, Loader2, Download, Menu, Lock, Rocket, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import KeyInput from './components/KeyInput';
 import MediaInput from './components/MediaInput';
 import ManualClipTab from './components/ManualClipTab';
@@ -368,6 +368,34 @@ function App() {
   const [uploadMode, setUploadMode] = useState('openshorts'); // 'openshorts' | 'edit-video'
   // Mobile only: the full nav lives in a drawer behind the header's menu button.
   const [navOpen, setNavOpen] = useState(false);
+  // Desktop sidebar collapse state (persisted across sessions)
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem('os_sidebar_open');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('os_sidebar_open', String(sidebarOpen));
+    } catch {}
+  }, [sidebarOpen]);
+
+  // Keyboard shortcut Ctrl+B / Cmd+B toggles desktop sidebar
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        if (['INPUT', 'TEXTAREA'].includes(e.target?.tagName) || e.target?.isContentEditable) return;
+        e.preventDefault();
+        setSidebarOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   // Reopened-project state (paid mode): per-clip {index, server_file, active_layers}
   // restored from the backend so ResultCards resume editing where they left off.
   const [projectState, setProjectState] = useState(null);
@@ -1304,49 +1332,67 @@ function App() {
     </>
   );
 
-  // Desktop rail: icon-only from md, labelled from lg. Below md it is gone
-  // entirely — an unlabelled 80px rail ate a fifth of a phone screen.
+  // Desktop rail / drawer: full navigation with logo, nav items, and footer links.
+  // Closable / collapsible to give maximum screen space for editing.
   const Sidebar = () => (
-    <div className="hidden md:flex w-20 lg:w-64 bg-paper2 border-r border-rule flex-col h-full shrink-0 transition-all duration-300">
-      <a href="#landing" className="p-6 flex items-center gap-3" title="go to landing page">
-        <div className="w-8 h-8 bg-paper3 rounded-input flex items-center justify-center shrink-0 overflow-hidden border border-rule">
-          <img src="/logo-openshorts.png" alt="Logo" className="w-full h-full object-cover" />
+    <aside
+      className={`hidden md:flex flex-col h-full bg-paper2 shrink-0 transition-all duration-300 ease-in-out overflow-hidden z-20 ${
+        sidebarOpen ? 'w-64 border-r border-rule' : 'w-0 border-r-0'
+      }`}
+      aria-label="Navigation"
+      aria-hidden={!sidebarOpen}
+    >
+      <div className="w-64 h-full flex flex-col shrink-0">
+        <div className="h-14 px-4 flex items-center justify-between border-b border-rule shrink-0">
+          <a href="#landing" className="flex items-center gap-2.5 min-w-0 group" title="go to landing page">
+            <div className="w-8 h-8 bg-paper3 rounded-input flex items-center justify-center shrink-0 overflow-hidden border border-rule group-hover:border-ink/30 transition-colors">
+              <img src="/logo-openshorts.png" alt="Logo" className="w-full h-full object-cover" />
+            </div>
+            <span className="font-display lowercase text-lg text-ink truncate group-hover:text-brass transition-colors">openshorts</span>
+          </a>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar"
+            title="Close sidebar (Ctrl+B)"
+            className="p-1.5 rounded-input text-muted hover:text-ink hover:bg-paper3 active:bg-paper3 transition-colors shrink-0 flex items-center justify-center"
+          >
+            <PanelLeftClose size={18} />
+          </button>
         </div>
-        <span className="font-display lowercase text-lg text-ink hidden lg:block">openshorts</span>
-      </a>
 
-      <nav className="flex-1 px-4 py-4 space-y-1">
-        {navItems.map((item) => {
-          const NavIcon = item.icon;
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              data-tutorial={item.id === 'dashboard' ? 'nav-clips' : undefined}
-              onClick={() => goToTab(item.id)}
-              title={tabLocked(item.id) ? 'Finish your first clips to unlock' : item.label}
-              disabled={tabLocked(item.id)}
-              className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-input transition-colors ${isActive ? 'bg-paper3 text-ink' : 'text-muted hover:text-ink2 hover:bg-paper3/50'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-muted' : ''}`}
-            >
-              {isActive && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-brass rounded-full" aria-hidden="true" />
-              )}
-              <NavIcon size={18} className={`shrink-0 ${isActive ? 'text-brass' : ''}`} />
-              <span className="text-sm lowercase hidden lg:block flex-1 text-left truncate">{item.label}</span>
-              {tabLocked(item.id)
-                ? <Lock size={12} className="shrink-0 hidden lg:block" />
-                : item.byok ? <span className="readout hidden lg:block">BYOK</span>
-                  : item.isNew ? <span className="badge-brass hidden lg:block">new</span> : null}
-              <span className="readout hidden lg:block">{item.ord}</span>
-            </button>
-          );
-        })}
-      </nav>
+        <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto custom-scrollbar">
+          {navItems.map((item) => {
+            const NavIcon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                data-tutorial={item.id === 'dashboard' ? 'nav-clips' : undefined}
+                onClick={() => goToTab(item.id)}
+                title={tabLocked(item.id) ? 'Finish your first clips to unlock' : item.label}
+                disabled={tabLocked(item.id)}
+                className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-input transition-colors ${isActive ? 'bg-paper3 text-ink' : 'text-muted hover:text-ink2 hover:bg-paper3/50'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-muted' : ''}`}
+              >
+                {isActive && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-brass rounded-full" aria-hidden="true" />
+                )}
+                <NavIcon size={18} className={`shrink-0 ${isActive ? 'text-brass' : ''}`} />
+                <span className="text-sm lowercase flex-1 text-left truncate">{item.label}</span>
+                {tabLocked(item.id)
+                  ? <Lock size={12} className="shrink-0" />
+                  : item.byok ? <span className="readout">BYOK</span>
+                    : item.isNew ? <span className="badge-brass">new</span> : null}
+                <span className="readout">{item.ord}</span>
+              </button>
+            );
+          })}
+        </nav>
 
-      <div className="p-4 border-t border-rule space-y-1">
-        <NavFooterLinks collapsed />
+        <div className="p-3 border-t border-rule space-y-0.5 shrink-0">
+          <NavFooterLinks collapsed={false} />
+        </div>
       </div>
-    </div>
+    </aside>
   );
 
   // Mobile drawer: the complete nav, reachable from the header's menu button.
@@ -1478,6 +1524,26 @@ function App() {
             <span data-tutorial="nav-clips" className="md:hidden font-display lowercase text-base text-ink truncate">
               {activeNav?.label || 'openshorts'}
             </span>
+
+            {/* Desktop: open sidebar when closed */}
+            {!sidebarOpen && (
+              <div className="hidden md:flex items-center gap-2.5 -ml-2 shrink-0 animate-fade">
+                <button
+                  onClick={() => setSidebarOpen(true)}
+                  aria-label="Open sidebar"
+                  title="Open sidebar (Ctrl+B)"
+                  className="p-2 rounded-input text-muted hover:text-ink hover:bg-paper3 active:bg-paper3 transition-colors shrink-0 flex items-center justify-center"
+                >
+                  <PanelLeftOpen size={18} />
+                </button>
+                <a href="#landing" className="flex items-center gap-2 pl-1 group" title="go to landing page">
+                  <div className="w-7 h-7 bg-paper3 rounded-input flex items-center justify-center shrink-0 overflow-hidden border border-rule group-hover:border-ink/30 transition-colors">
+                    <img src="/logo-openshorts.png" alt="Logo" className="w-full h-full object-cover" />
+                  </div>
+                  <span className="font-display lowercase text-base text-ink group-hover:text-brass transition-colors">openshorts</span>
+                </a>
+              </div>
+            )}
             {status !== 'idle' && (
               <button
                 onClick={handleReset}

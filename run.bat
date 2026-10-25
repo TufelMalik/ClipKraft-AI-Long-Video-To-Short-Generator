@@ -8,7 +8,7 @@ start "OpenShorts Backend" cmd /k "cd /d D:\Open Short && .venv\Scripts\python.e
 echo Starting OpenShorts Frontend...
 start "OpenShorts Frontend" cmd /k "cd /d D:\Open Short\dashboard && set VITE_PROXY_TARGET=http://localhost:8000 && npm run dev"
 
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 start http://localhost:5173/index.html
 
 echo OpenShorts is running!

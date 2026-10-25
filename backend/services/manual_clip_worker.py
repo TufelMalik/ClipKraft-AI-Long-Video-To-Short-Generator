@@ -6,6 +6,13 @@ import subprocess
 import asyncio
 from typing import List, Dict, Any, Optional
 
+_CURR_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(os.path.dirname(_CURR_DIR))
+_PIPELINE_DIR = os.path.join(os.path.dirname(_CURR_DIR), "pipeline")
+for _p in [_REPO_ROOT, _PIPELINE_DIR, _CURR_DIR]:
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from manual_clip_pipeline import process_single_clip, parse_time_str, DEFAULT_OUTRO
 
 def safe_print(msg: str):

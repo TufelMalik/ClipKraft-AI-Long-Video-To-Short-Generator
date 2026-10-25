@@ -2,11 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import seo from './vite-plugin-seo'
 
-// Backend target for the dev proxy. Defaults to the docker-compose service
-// name; set VITE_PROXY_TARGET=http://localhost:8000 to run the dev server on
-// the host against a backend reachable at localhost (no CORS, same-origin).
-const backend = process.env.VITE_PROXY_TARGET || 'http://backend:8000'
-const renderer = process.env.VITE_RENDER_TARGET || 'http://renderer:3100'
+// Backend target for the dev proxy. Defaults to localhost for native development;
+// set VITE_PROXY_TARGET=http://backend:8000 when running in Docker.
+const backend = process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8000'
+const renderer = process.env.VITE_RENDER_TARGET || 'http://127.0.0.1:3100'
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -36,7 +35,23 @@ export default defineConfig({
       '127.0.0.1'
     ],
     proxy: {
-      '/api': { target: backend, changeOrigin: true },
+      '/api': {
+        target: backend,
+        changeOrigin: true,
+        timeout: 600000,
+        proxyTimeout: 600000,
+        configure: (proxy) => {
+          proxy.on('error', (err, req, res) => {
+            console.error(`[vite proxy error] ${req.method} ${req.url}:`, err.message);
+            if (!res.headersSent && res.writeHead) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                detail: `Backend server at ${backend} is unreachable (${err.message}). Please ensure the OpenShorts backend is running on port 8000 (uvicorn app:app --port 8000).`
+              }));
+            }
+          });
+        }
+      },
       '/videos': { target: backend, changeOrigin: true },
       '/thumbnails': { target: backend, changeOrigin: true },
       '/gallery': { target: backend, changeOrigin: true },

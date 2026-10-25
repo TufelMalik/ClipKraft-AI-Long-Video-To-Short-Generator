@@ -1,0 +1,857 @@
+[
+  {
+    "word": "And",
+    "start": 1.04,
+    "end": 1.6
+  },
+  {
+    "word": "the",
+    "start": 1.6,
+    "end": 1.76
+  },
+  {
+    "word": "rule",
+    "start": 1.76,
+    "end": 1.92
+  },
+  {
+    "word": "of",
+    "start": 1.92,
+    "end": 2.06
+  },
+  {
+    "word": "72",
+    "start": 2.06,
+    "end": 2.36
+  },
+  {
+    "word": "is",
+    "start": 2.36,
+    "end": 2.74
+  },
+  {
+    "word": "a",
+    "start": 2.74,
+    "end": 3.0
+  },
+  {
+    "word": "very",
+    "start": 3.0,
+    "end": 3.92
+  },
+  {
+    "word": "important",
+    "start": 3.92,
+    "end": 4.46
+  },
+  {
+    "word": "rule,",
+    "start": 4.46,
+    "end": 4.86
+  },
+  {
+    "word": "and",
+    "start": 5.06,
+    "end": 5.14
+  },
+  {
+    "word": "I",
+    "start": 5.14,
+    "end": 5.26
+  },
+  {
+    "word": "wish",
+    "start": 5.26,
+    "end": 5.38
+  },
+  {
+    "word": "they",
+    "start": 5.38,
+    "end": 5.52
+  },
+  {
+    "word": "would",
+    "start": 5.52,
+    "end": 5.66
+  },
+  {
+    "word": "teach",
+    "start": 5.66,
+    "end": 6.34
+  },
+  {
+    "word": "at",
+    "start": 6.34,
+    "end": 6.52
+  },
+  {
+    "word": "more",
+    "start": 6.52,
+    "end": 6.82
+  },
+  {
+    "word": "in",
+    "start": 6.82,
+    "end": 7.06
+  },
+  {
+    "word": "high",
+    "start": 7.06,
+    "end": 7.26
+  },
+  {
+    "word": "schools",
+    "start": 7.26,
+    "end": 7.62
+  },
+  {
+    "word": "and",
+    "start": 7.62,
+    "end": 7.92
+  },
+  {
+    "word": "elementary",
+    "start": 7.92,
+    "end": 9.24
+  },
+  {
+    "word": "school.",
+    "start": 9.24,
+    "end": 9.66
+  },
+  {
+    "word": "It",
+    "start": 10.38,
+    "end": 10.94
+  },
+  {
+    "word": "tells",
+    "start": 10.94,
+    "end": 11.36
+  },
+  {
+    "word": "us",
+    "start": 11.36,
+    "end": 11.8
+  },
+  {
+    "word": "how",
+    "start": 11.8,
+    "end": 12.1
+  },
+  {
+    "word": "long",
+    "start": 12.1,
+    "end": 12.52
+  },
+  {
+    "word": "it",
+    "start": 12.52,
+    "end": 12.72
+  },
+  {
+    "word": "takes",
+    "start": 12.72,
+    "end": 12.98
+  },
+  {
+    "word": "money",
+    "start": 12.98,
+    "end": 13.28
+  },
+  {
+    "word": "to",
+    "start": 13.28,
+    "end": 13.48
+  },
+  {
+    "word": "double,",
+    "start": 13.48,
+    "end": 13.78
+  },
+  {
+    "word": "and",
+    "start": 14.04,
+    "end": 14.16
+  },
+  {
+    "word": "it's",
+    "start": 14.16,
+    "end": 14.3
+  },
+  {
+    "word": "kind",
+    "start": 14.3,
+    "end": 14.54
+  },
+  {
+    "word": "of",
+    "start": 14.54,
+    "end": 14.62
+  },
+  {
+    "word": "a",
+    "start": 14.62,
+    "end": 14.7
+  },
+  {
+    "word": "mathematical",
+    "start": 14.7,
+    "end": 15.08
+  },
+  {
+    "word": "hack.",
+    "start": 15.08,
+    "end": 15.74
+  },
+  {
+    "word": "So",
+    "start": 15.96,
+    "end": 16.04
+  },
+  {
+    "word": "for",
+    "start": 16.04,
+    "end": 16.22
+  },
+  {
+    "word": "example,",
+    "start": 16.22,
+    "end": 16.7
+  },
+  {
+    "word": "if",
+    "start": 17.56,
+    "end": 18.16
+  },
+  {
+    "word": "I'm",
+    "start": 18.16,
+    "end": 18.42
+  },
+  {
+    "word": "going",
+    "start": 18.42,
+    "end": 18.56
+  },
+  {
+    "word": "to",
+    "start": 18.56,
+    "end": 18.68
+  },
+  {
+    "word": "get",
+    "start": 18.68,
+    "end": 18.8
+  },
+  {
+    "word": "a",
+    "start": 18.8,
+    "end": 18.92
+  },
+  {
+    "word": "7",
+    "start": 18.92,
+    "end": 19.14
+  },
+  {
+    "word": "%",
+    "start": 19.14,
+    "end": 19.36
+  },
+  {
+    "word": "return,",
+    "start": 19.36,
+    "end": 19.92
+  },
+  {
+    "word": "and",
+    "start": 20.6,
+    "end": 20.88
+  },
+  {
+    "word": "I",
+    "start": 20.88,
+    "end": 21.0
+  },
+  {
+    "word": "do",
+    "start": 21.0,
+    "end": 21.16
+  },
+  {
+    "word": "72",
+    "start": 21.16,
+    "end": 21.9
+  },
+  {
+    "word": "divided",
+    "start": 21.9,
+    "end": 22.18
+  },
+  {
+    "word": "by",
+    "start": 22.18,
+    "end": 22.48
+  },
+  {
+    "word": "7,",
+    "start": 22.48,
+    "end": 22.86
+  },
+  {
+    "word": "that's",
+    "start": 23.4,
+    "end": 23.92
+  },
+  {
+    "word": "approximately",
+    "start": 23.92,
+    "end": 24.44
+  },
+  {
+    "word": "10.",
+    "start": 24.44,
+    "end": 25.02
+  },
+  {
+    "word": "And",
+    "start": 26.42,
+    "end": 26.9
+  },
+  {
+    "word": "at",
+    "start": 26.9,
+    "end": 27.38
+  },
+  {
+    "word": "the",
+    "start": 27.38,
+    "end": 27.5
+  },
+  {
+    "word": "7",
+    "start": 27.5,
+    "end": 27.74
+  },
+  {
+    "word": "%",
+    "start": 27.74,
+    "end": 27.98
+  },
+  {
+    "word": "return,",
+    "start": 27.98,
+    "end": 28.46
+  },
+  {
+    "word": "it's",
+    "start": 28.76,
+    "end": 29.08
+  },
+  {
+    "word": "going",
+    "start": 29.08,
+    "end": 29.18
+  },
+  {
+    "word": "to",
+    "start": 29.18,
+    "end": 29.3
+  },
+  {
+    "word": "take",
+    "start": 29.3,
+    "end": 29.42
+  },
+  {
+    "word": "10",
+    "start": 29.42,
+    "end": 29.72
+  },
+  {
+    "word": "years",
+    "start": 29.72,
+    "end": 29.88
+  },
+  {
+    "word": "for",
+    "start": 29.88,
+    "end": 30.06
+  },
+  {
+    "word": "the",
+    "start": 30.06,
+    "end": 30.16
+  },
+  {
+    "word": "money",
+    "start": 30.16,
+    "end": 30.32
+  },
+  {
+    "word": "to",
+    "start": 30.32,
+    "end": 30.52
+  },
+  {
+    "word": "double.",
+    "start": 30.52,
+    "end": 30.74
+  },
+  {
+    "word": "7",
+    "start": 31.14,
+    "end": 31.32
+  },
+  {
+    "word": "%",
+    "start": 31.32,
+    "end": 31.54
+  },
+  {
+    "word": "compounded",
+    "start": 31.54,
+    "end": 32.16
+  },
+  {
+    "word": "will",
+    "start": 32.16,
+    "end": 32.3
+  },
+  {
+    "word": "take",
+    "start": 32.3,
+    "end": 32.46
+  },
+  {
+    "word": "10",
+    "start": 32.46,
+    "end": 32.7
+  },
+  {
+    "word": "years.",
+    "start": 32.7,
+    "end": 32.92
+  },
+  {
+    "word": "If",
+    "start": 33.66,
+    "end": 34.0
+  },
+  {
+    "word": "I",
+    "start": 34.0,
+    "end": 34.14
+  },
+  {
+    "word": "have",
+    "start": 34.14,
+    "end": 34.28
+  },
+  {
+    "word": "a",
+    "start": 34.28,
+    "end": 34.38
+  },
+  {
+    "word": "10",
+    "start": 34.38,
+    "end": 34.62
+  },
+  {
+    "word": "%",
+    "start": 34.62,
+    "end": 34.88
+  },
+  {
+    "word": "return,",
+    "start": 34.88,
+    "end": 35.4
+  },
+  {
+    "word": "it",
+    "start": 36.22,
+    "end": 37.14
+  },
+  {
+    "word": "will",
+    "start": 37.14,
+    "end": 37.28
+  },
+  {
+    "word": "take",
+    "start": 37.28,
+    "end": 37.46
+  },
+  {
+    "word": "7",
+    "start": 37.46,
+    "end": 37.76
+  },
+  {
+    "word": "years.",
+    "start": 37.76,
+    "end": 38.04
+  },
+  {
+    "word": "72",
+    "start": 38.94,
+    "end": 39.42
+  },
+  {
+    "word": "divided",
+    "start": 39.42,
+    "end": 39.72
+  },
+  {
+    "word": "by",
+    "start": 39.72,
+    "end": 39.94
+  },
+  {
+    "word": "10",
+    "start": 39.94,
+    "end": 40.16
+  },
+  {
+    "word": "is",
+    "start": 40.16,
+    "end": 40.28
+  },
+  {
+    "word": "7.",
+    "start": 40.28,
+    "end": 40.54
+  },
+  {
+    "word": "If",
+    "start": 40.82,
+    "end": 41.0
+  },
+  {
+    "word": "I",
+    "start": 41.0,
+    "end": 41.14
+  },
+  {
+    "word": "have",
+    "start": 41.14,
+    "end": 41.24
+  },
+  {
+    "word": "a",
+    "start": 41.24,
+    "end": 41.34
+  },
+  {
+    "word": "15",
+    "start": 41.34,
+    "end": 41.72
+  },
+  {
+    "word": "%",
+    "start": 41.72,
+    "end": 42.04
+  },
+  {
+    "word": "return,",
+    "start": 42.04,
+    "end": 42.62
+  },
+  {
+    "word": "it",
+    "start": 43.52,
+    "end": 43.62
+  },
+  {
+    "word": "will",
+    "start": 43.62,
+    "end": 43.76
+  },
+  {
+    "word": "take",
+    "start": 43.76,
+    "end": 43.92
+  },
+  {
+    "word": "5",
+    "start": 43.92,
+    "end": 44.2
+  },
+  {
+    "word": "years.",
+    "start": 44.2,
+    "end": 44.48
+  },
+  {
+    "word": "72",
+    "start": 44.9,
+    "end": 45.3
+  },
+  {
+    "word": "divided",
+    "start": 45.3,
+    "end": 45.64
+  },
+  {
+    "word": "by",
+    "start": 45.64,
+    "end": 45.86
+  },
+  {
+    "word": "15",
+    "start": 45.86,
+    "end": 46.2
+  },
+  {
+    "word": "is",
+    "start": 46.2,
+    "end": 46.44
+  },
+  {
+    "word": "5,",
+    "start": 46.44,
+    "end": 46.74
+  },
+  {
+    "word": "approximately.",
+    "start": 46.88,
+    "end": 47.32
+  },
+  {
+    "word": "And",
+    "start": 48.38,
+    "end": 48.86
+  },
+  {
+    "word": "if",
+    "start": 48.86,
+    "end": 49.02
+  },
+  {
+    "word": "I",
+    "start": 49.02,
+    "end": 49.12
+  },
+  {
+    "word": "have",
+    "start": 49.12,
+    "end": 49.2
+  },
+  {
+    "word": "a",
+    "start": 49.2,
+    "end": 49.26
+  },
+  {
+    "word": "20",
+    "start": 49.26,
+    "end": 49.52
+  },
+  {
+    "word": "%",
+    "start": 49.52,
+    "end": 49.74
+  },
+  {
+    "word": "return,",
+    "start": 49.74,
+    "end": 50.22
+  },
+  {
+    "word": "it'll",
+    "start": 50.68,
+    "end": 50.98
+  },
+  {
+    "word": "take",
+    "start": 50.98,
+    "end": 51.18
+  },
+  {
+    "word": "3",
+    "start": 51.18,
+    "end": 51.68
+  },
+  {
+    "word": ".5",
+    "start": 51.68,
+    "end": 51.9
+  },
+  {
+    "word": "years.",
+    "start": 51.9,
+    "end": 52.2
+  },
+  {
+    "word": "So",
+    "start": 53.06,
+    "end": 53.54
+  },
+  {
+    "word": "this",
+    "start": 53.54,
+    "end": 53.9
+  },
+  {
+    "word": "rule",
+    "start": 53.9,
+    "end": 54.34
+  },
+  {
+    "word": "of",
+    "start": 54.34,
+    "end": 54.46
+  },
+  {
+    "word": "72",
+    "start": 54.46,
+    "end": 54.8
+  },
+  {
+    "word": "is",
+    "start": 54.8,
+    "end": 55.02
+  },
+  {
+    "word": "a",
+    "start": 55.02,
+    "end": 55.1
+  },
+  {
+    "word": "nice",
+    "start": 55.1,
+    "end": 55.36
+  },
+  {
+    "word": "hack,",
+    "start": 55.36,
+    "end": 55.76
+  },
+  {
+    "word": "and",
+    "start": 56.24,
+    "end": 56.6
+  },
+  {
+    "word": "it's",
+    "start": 56.6,
+    "end": 56.76
+  },
+  {
+    "word": "very",
+    "start": 56.76,
+    "end": 56.92
+  },
+  {
+    "word": "important",
+    "start": 56.92,
+    "end": 57.44
+  },
+  {
+    "word": "to",
+    "start": 57.44,
+    "end": 57.84
+  },
+  {
+    "word": "know",
+    "start": 57.84,
+    "end": 58.12
+  },
+  {
+    "word": "how",
+    "start": 58.12,
+    "end": 58.42
+  },
+  {
+    "word": "long",
+    "start": 58.42,
+    "end": 58.66
+  },
+  {
+    "word": "money",
+    "start": 58.66,
+    "end": 59.12
+  },
+  {
+    "word": "takes",
+    "start": 59.12,
+    "end": 59.38
+  },
+  {
+    "word": "to",
+    "start": 59.38,
+    "end": 59.56
+  },
+  {
+    "word": "double",
+    "start": 59.56,
+    "end": 59.8
+  },
+  {
+    "word": "because",
+    "start": 59.8,
+    "end": 60.04
+  },
+  {
+    "word": "then",
+    "start": 60.04,
+    "end": 60.22
+  },
+  {
+    "word": "we",
+    "start": 60.22,
+    "end": 60.36
+  },
+  {
+    "word": "can",
+    "start": 60.36,
+    "end": 60.5
+  },
+  {
+    "word": "start",
+    "start": 60.5,
+    "end": 60.7
+  },
+  {
+    "word": "doing",
+    "start": 60.7,
+    "end": 60.9
+  },
+  {
+    "word": "a",
+    "start": 60.9,
+    "end": 61.04
+  },
+  {
+    "word": "lot",
+    "start": 61.04,
+    "end": 61.16
+  },
+  {
+    "word": "of",
+    "start": 61.16,
+    "end": 61.32
+  },
+  {
+    "word": "math",
+    "start": 61.32,
+    "end": 61.68
+  },
+  {
+    "word": "in",
+    "start": 61.68,
+    "end": 61.86
+  },
+  {
+    "word": "our",
+    "start": 61.86,
+    "end": 62.0
+  },
+  {
+    "word": "head.",
+    "start": 62.0,
+    "end": 62.18
+  }
+]

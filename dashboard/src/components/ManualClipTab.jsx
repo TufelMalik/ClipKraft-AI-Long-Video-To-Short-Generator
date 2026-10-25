@@ -11,6 +11,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
     const [inputMode, setInputMode] = useState('file'); // 'file' | 'path' | 'url'
     const [error, setError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(null);
 
     // Dynamic Timestamp clips list
     const [clips, setClips] = useState([
@@ -99,6 +100,8 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
         }
 
         setIsSubmitting(true);
+        setError('');
+        setUploadProgress(inputMode === 'file' && file ? 0 : null);
 
         try {
             const formData = new FormData();
@@ -116,17 +119,53 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                 formData.append('outro_path', outroPath.trim());
             }
 
-            const res = await fetch(getApiUrl('/api/manual-clip/process'), {
-                method: 'POST',
-                body: formData
+            const data = await new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', getApiUrl('/api/manual-clip/process'));
+
+                const token = localStorage.getItem('openshorts_auth');
+                if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+                if (inputMode === 'file' && file) {
+                    xhr.upload.onprogress = (event) => {
+                        if (event.lengthComputable) {
+                            const percent = Math.round((event.loaded / event.total) * 100);
+                            setUploadProgress(percent);
+                        }
+                    };
+                }
+
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            resolve(JSON.parse(xhr.responseText));
+                        } catch (e) {
+                            resolve({ job_id: null });
+                        }
+                    } else {
+                        let detail = 'Failed to start manual clipping job.';
+                        try {
+                            const errData = JSON.parse(xhr.responseText);
+                            detail = errData.detail || detail;
+                        } catch (_) {}
+                        reject(new Error(detail));
+                    }
+                };
+
+                xhr.onerror = () => {
+                    reject(new Error('Cannot connect to OpenShorts backend server. Please verify that the backend is running on http://127.0.0.1:8000 (run: uvicorn app:app --port 8000).'));
+                };
+
+                xhr.ontimeout = () => {
+                    reject(new Error('Upload request timed out. For very large videos, please use the "Local Path" option.'));
+                };
+
+                xhr.timeout = 1800000; // 30 minutes for multi-gigabyte uploads
+                xhr.send(formData);
             });
 
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.detail || 'Failed to start manual clipping job.');
-            }
+            setUploadProgress(null);
 
-            const data = await res.json();
             if (data.job_id) {
                 // Pass to App.jsx to switch to live analysis & processing view
                 onJobStarted(data.job_id, {
@@ -134,10 +173,17 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                     name: file ? file.name : (localVideoPath || videoUrl),
                     payload: file || localVideoPath || videoUrl
                 });
+            } else {
+                throw new Error('No job ID returned from server.');
             }
         } catch (err) {
-            setError(err.message || 'Error starting job.');
+            let msg = err.message || 'Error starting job.';
+            if (msg === 'Failed to fetch' || msg.includes('NetworkError')) {
+                msg = 'Cannot connect to OpenShorts backend server. Please verify that the backend is running on http://127.0.0.1:8000 (run: uvicorn app:app --port 8000).';
+            }
+            setError(msg);
             setIsSubmitting(false);
+            setUploadProgress(null);
         }
     };
 
@@ -215,19 +261,26 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                             className="hidden"
                         />
                         {file ? (
-                            <div className="flex items-center justify-center gap-3 text-ink">
-                                <FileVideo size={24} className="text-brass" />
-                                <div className="text-left">
-                                    <div className="font-medium text-sm truncate max-w-sm">{file.name}</div>
-                                    <div className="text-xs text-muted">{(file.size / (1024 * 1024)).toFixed(1)} MB · Ready to clip</div>
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-center gap-3 text-ink">
+                                    <FileVideo size={24} className="text-brass" />
+                                    <div className="text-left">
+                                        <div className="font-medium text-sm truncate max-w-sm">{file.name}</div>
+                                        <div className="text-xs text-muted">{(file.size / (1024 * 1024)).toFixed(1)} MB · Ready to clip</div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                                        className="p-1 text-muted hover:text-red-400 rounded-full hover:bg-paper"
+                                    >
+                                        <X size={16} />
+                                    </button>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setFile(null); }}
-                                    className="p-1 text-muted hover:text-red-400 rounded-full hover:bg-paper"
-                                >
-                                    <X size={16} />
-                                </button>
+                                {file.size > 200 * 1024 * 1024 && (
+                                    <div className="text-[11px] text-brass/90 bg-brass/10 border border-brass/20 rounded px-2.5 py-1 text-center font-normal">
+                                        💡 <strong>Tip:</strong> For large local videos, you can also use <strong>Local Path</strong> above to skip upload wait time entirely.
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-2">
@@ -242,13 +295,18 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                 )}
 
                 {inputMode === 'path' && (
-                    <input
-                        type="text"
-                        value={localVideoPath}
-                        onChange={(e) => setLocalVideoPath(e.target.value)}
-                        placeholder="e.g. C:\Youtube Channels\Videos\Temp Videos\01 - Mike Rowe.mp4"
-                        className="w-full px-3.5 py-2.5 rounded-input border border-rule bg-paper text-sm text-ink placeholder:text-muted focus:border-brass focus:outline-none font-mono text-xs"
-                    />
+                    <div className="space-y-1.5">
+                        <input
+                            type="text"
+                            value={localVideoPath}
+                            onChange={(e) => setLocalVideoPath(e.target.value)}
+                            placeholder="e.g. C:\Youtube Channels\Videos\Temp Videos\01 - Mike Rowe.mp4"
+                            className="w-full px-3.5 py-2.5 rounded-input border border-rule bg-paper text-sm text-ink placeholder:text-muted focus:border-brass focus:outline-none font-mono text-xs"
+                        />
+                        <div className="text-[11px] text-muted flex items-center gap-1">
+                            <span>⚡ Direct disk path: Instant start with 0 upload wait time (ideal for 2GB+ videos).</span>
+                        </div>
+                    </div>
                 )}
 
                 {inputMode === 'url' && (
@@ -409,6 +467,25 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                 )}
             </div>
 
+            {/* Upload Progress Bar */}
+            {uploadProgress !== null && (
+                <div className="space-y-1.5 p-3 rounded-input bg-paper3/60 border border-rule animate-fade">
+                    <div className="flex justify-between items-center text-xs">
+                        <span className="text-ink font-medium flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 border-2 border-brass border-t-transparent rounded-full animate-spin" />
+                            Uploading video to local server...
+                        </span>
+                        <span className="font-mono text-brass font-semibold">{uploadProgress}%</span>
+                    </div>
+                    <div className="w-full bg-paper rounded-full h-2 overflow-hidden border border-rule/50">
+                        <div
+                            className="bg-brass h-full transition-all duration-150 rounded-full"
+                            style={{ width: `${uploadProgress}%` }}
+                        />
+                    </div>
+                </div>
+            )}
+
             {/* Submit Button */}
             <button
                 type="submit"
@@ -418,7 +495,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                 {isSubmitting || isProcessing ? (
                     <>
                         <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                        Processing Timestamp Clips...
+                        {uploadProgress !== null ? `Uploading Video (${uploadProgress}%)...` : 'Processing Timestamp Clips...'}
                     </>
                 ) : (
                     <>
