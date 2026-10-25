@@ -34,8 +34,13 @@ except Exception:
 
 # Active speaker module from pipeline
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(REPO_ROOT, "backend", "pipeline"))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+pipe_dir = os.path.join(REPO_ROOT, "backend", "pipeline")
+if pipe_dir not in sys.path:
+    sys.path.insert(0, pipe_dir)
 import active_speaker
+import split_layout
 
 DEFAULT_TFLITE = os.path.join(REPO_ROOT, "blaze_face_short_range.tflite")
 DEFAULT_YOLO = os.path.join(REPO_ROOT, "yolov8n.pt")
@@ -240,281 +245,209 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     with open(ass_path, "w", encoding="utf-8-sig") as f:
         f.write(header + "\n".join(events) + "\n")
 
-def detect_candidate_speakers(video_path: str, orig_w: int, orig_h: int, log_fn=safe_print):
-    """
-    Samples frames across the video to discover all seated/present face clusters.
-    Returns list of speaker cluster dicts: [{ 'cx': float, 'box': [x,y,w,h] }, ...]
-    """
+def detect_candidate_speakers(video_path: str, orig_w: int, orig_h: int,
+                              log_fn=safe_print, start_frame=0, end_frame=None):
+    """Discover positions within ONE shot, without cutting faces at mid-frame."""
     cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 29.97
-    total_f = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 100)
-    dur_s = total_f / fps
-
     detector = None
-    if HAS_MEDIAPIPE and os.path.exists(DEFAULT_TFLITE):
-        try:
-            base_options = mp_python.BaseOptions(model_asset_path=DEFAULT_TFLITE)
-            options = mp_vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.35)
-            detector = mp_vision.FaceDetector.create_from_options(options)
-        except Exception:
-            pass
-
     yolo_model = None
-    if detector is None and HAS_YOLO and os.path.exists(DEFAULT_YOLO):
-        try:
-            yolo_model = YOLO(DEFAULT_YOLO)
-        except Exception:
-            pass
+    boxes = []
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 29.97
+        end_frame = end_frame or int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if HAS_MEDIAPIPE and os.path.exists(DEFAULT_TFLITE):
+            try:
+                options = mp_vision.FaceDetectorOptions(
+                    base_options=mp_python.BaseOptions(model_asset_path=DEFAULT_TFLITE),
+                    min_detection_confidence=0.35)
+                detector = mp_vision.FaceDetector.create_from_options(options)
+            except Exception:
+                pass
+        if HAS_YOLO and os.path.exists(DEFAULT_YOLO):
+            try:
+                yolo_model = YOLO(DEFAULT_YOLO)
+            except Exception:
+                pass
+        count = min(12, max(3, int((end_frame - start_frame) / fps * 1.5)))
+        for pos in sorted(set(np.linspace(start_frame, max(start_frame, end_frame - 1),
+                                           count).astype(int))):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            small = cv2.resize(frame, (640, max(2, round(640 * orig_h / orig_w))))
+            sx, sy = orig_w / small.shape[1], orig_h / small.shape[0]
+            found = []
+            if detector is not None:
+                try:
+                    res = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB,
+                        data=cv2.cvtColor(small, cv2.COLOR_BGR2RGB)))
+                    for d in res.detections:
+                        b = d.bounding_box
+                        found.append([b.origin_x * sx, b.origin_y * sy,
+                                      b.width * sx, b.height * sy])
+                except Exception:
+                    pass
+            if not found and yolo_model is not None:
+                try:
+                    for result in yolo_model(small, classes=[0], verbose=False):
+                        for b in result.boxes:
+                            x1, y1, x2, y2 = b.xyxy[0].tolist()
+                            found.append([x1 * sx, y1 * sy, (x2 - x1) * sx,
+                                          (y2 - y1) * sy * 0.4])
+                except Exception:
+                    pass
+            boxes.extend(found)
+    finally:
+        cap.release()
+        if detector is not None:
+            detector.close()
 
-    # Sample up to 15 frames evenly
-    sample_count = min(15, max(3, int(dur_s * 1.5)))
-    step_f = max(1, total_f // sample_count)
-
-    detected_boxes = []
-    small_w = 640
-    small_h = int(640 * (orig_h / orig_w))
-    scale_factor = orig_w / float(small_w)
-
-    for i in range(sample_count):
-        f_pos = i * step_f
-        cap.set(cv2.CAP_PROP_POS_FRAMES, f_pos)
-        ret, frame = cap.read()
-        if not ret:
-            continue
-        small = cv2.resize(frame, (small_w, small_h))
-
-        if detector:
-            rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-            res = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb))
-            for d in res.detections:
-                b = d.bounding_box
-                detected_boxes.append([
-                    b.origin_x * scale_factor,
-                    b.origin_y * scale_factor,
-                    b.width * scale_factor,
-                    b.height * scale_factor
-                ])
-        elif yolo_model:
-            y_res = yolo_model(small, classes=[0], verbose=False)
-            for r in y_res:
-                for b in r.boxes:
-                    xyxy = [int(x * scale_factor) for x in b.xyxy[0]]
-                    detected_boxes.append([
-                        xyxy[0], xyxy[1], xyxy[2] - xyxy[0], (xyxy[3] - xyxy[1]) * 0.4
-                    ])
-    cap.release()
-
-    if not detected_boxes:
-        return []
-
-    # Cluster detected face boxes by horizontal center X (faces within 180px belong to the same person)
     clusters = []
-    for box in detected_boxes:
-        cx = box[0] + box[2] / 2.0
-        matched = False
-        for cl in clusters:
-            if abs(cl['cx'] - cx) < 200:
-                cl['boxes'].append(box)
-                cl['cx'] = sum(b[0] + b[2] / 2.0 for b in cl['boxes']) / len(cl['boxes'])
-                matched = True
-                break
-        if not matched:
+    for box in boxes:
+        cx = box[0] + box[2] / 2
+        cl = next((c for c in clusters if abs(c['cx'] - cx) < orig_w * 0.08), None)
+        if cl is None:
             clusters.append({'cx': cx, 'boxes': [box]})
+        else:
+            cl['boxes'].append(box)
+            cl['cx'] = float(np.median([b[0] + b[2] / 2 for b in cl['boxes']]))
+    valid = [c for c in clusters if len(c['boxes']) >= 2] or clusters
+    return sorted([{'cx': c['cx'], 'box': np.median(c['boxes'], axis=0).tolist()}
+                   for c in valid], key=lambda c: c['cx'])
 
-    # Keep clusters with at least 2 detections (filter out momentary noise)
-    valid_clusters = [cl for cl in clusters if len(cl['boxes']) >= 2] or clusters
 
-    # Compute median bounding box for each cluster
-    speaker_list = []
-    for cl in valid_clusters:
-        boxes_arr = np.array(cl['boxes'])
-        med_box = np.median(boxes_arr, axis=0).tolist()
-        speaker_list.append({
-            'cx': cl['cx'],
-            'box': med_box
-        })
+def _shot_fallback(video_path, boundaries, fps, orig_w, orig_h, crop_w, log_fn):
+    """Degrade per shot: never reuse coordinates from another camera angle."""
+    xs = []
+    for start, end in boundaries:
+        speakers = detect_candidate_speakers(video_path, orig_w, orig_h,
+            log_fn=log_fn, start_frame=start, end_frame=end)
+        cx = max(speakers, key=lambda s: s['box'][2] * s['box'][3])['cx'] if speakers else orig_w / 2
+        x = max(0, min(round(cx - crop_w / 2), orig_w - crop_w))
+        shot_xs = [x] * (end - start)
+        if len(speakers) == 2:
+            centres = [(s['cx'], s['box'][1] + s['box'][3] / 2,
+                        s['box'][2], s['box'][3]) for s in speakers]
+            try:
+                held = active_speaker.hold(active_speaker.verdicts_for_scene(
+                    video_path, start, end, fps, centres))
+                if any(v is not None for v in held):
+                    shot_xs = active_speaker.speaker_xs(
+                        held, centres, crop_w, orig_w, end - start, fps)
+            except Exception as exc:
+                log_fn(f"   Speaker attribution unavailable in shot {start}: {exc}")
+        xs.extend(shot_xs)
+    return xs
 
-    # Sort left to right
-    speaker_list.sort(key=lambda s: s['cx'])
-    return speaker_list
 
 def compute_active_speaker_trajectory(video_path: str, log_fn=safe_print):
-    """
-    Detects who is speaking in each time window and computes a smooth horizontal pan (X).
-    Accurately cuts/pans between speakers when conversation switches.
-    """
+    """Return a shot-local camera path and split layouts keyed by frame ranges."""
     cap = cv2.VideoCapture(video_path)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 29.97
-    orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 2560)
-    orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1440)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 100)
-    dur_s = total_frames / fps
-    cap.release()
-
-    crop_h = orig_h
-    crop_w = int(orig_h * 9 / 16)
-    if crop_w % 2 != 0:
-        crop_w -= 1
-    max_x = max(0, orig_w - crop_w)
-    center_default_x = max_x // 2
-
-    # Discover candidate speakers
-    log_fn("   👤 Detecting speaker positions and face clusters...")
-    speakers = detect_candidate_speakers(video_path, orig_w, orig_h, log_fn=log_fn)
-
-    speaker_switches = [] # Frame indices where active speaker changes
-
-    if len(speakers) == 0:
-        log_fn("   ℹ️ No face clusters identified, using center 9:16 framing.")
-        xs = [center_default_x] * total_frames
-        return xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches
-
-    if len(speakers) == 1:
-        log_fn(f"   👤 Solo speaker tracked at X={speakers[0]['cx']:.0f}px.")
-        target_x = max(0, min(int(round(speakers[0]['cx'] - crop_w / 2.0)), max_x))
-        xs = [target_x] * total_frames
-        return xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches
-
-    # Multi-speaker setup: Run lip/mouth activity + audio envelope analysis
-    log_fn(f"   🎙️ Found {len(speakers)} speakers! Analyzing active mouth movement & audio energy...")
-    window_s = 0.4
-    boxes = [s['box'] for s in speakers]
-
     try:
-        activity = active_speaker.decode_activity(video_path, 0.0, dur_s, boxes, fps, window_s=window_s)
-        loudness = active_speaker.audio_envelope(video_path, 0.0, dur_s, window_s=window_s)
-        norm_act = active_speaker.normalise_activity(activity)
+        if not cap.isOpened():
+            raise ValueError(f"Cannot open video: {video_path}")
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if not math.isfinite(fps) or fps <= 0 or min(orig_w, orig_h, total_frames) <= 0:
+            raise ValueError("Video has invalid dimensions, frame rate or frame count")
+    finally:
+        cap.release()
 
-        verdicts = []
-        for i, act_row in enumerate(norm_act):
-            if loudness and i < len(loudness) and loudness[i] < 0.15:
-                verdicts.append(None)
-                continue
-            row = np.array(act_row)
-            tot = np.sum(row)
-            if tot <= 0:
-                verdicts.append(None)
-                continue
-            sorted_indices = np.argsort(row)[::-1]
-            top = sorted_indices[0]
-            second = sorted_indices[1] if len(sorted_indices) > 1 else top
-            if len(sorted_indices) > 1 and (row[top] - row[second]) / tot >= 0.10:
-                verdicts.append(top)
-            else:
-                verdicts.append(top)
+    crop_w = min(orig_w, int(orig_h * 9 / 16))
+    crop_w -= crop_w % 2
+    crop_h = orig_h if orig_w >= int(orig_h * 9 / 16) else int(crop_w * 16 / 9)
+    crop_h -= crop_h % 2
+    if min(crop_w, crop_h) < 2:
+        raise ValueError("Video is too small to crop")
+    max_x = orig_w - crop_w
 
-        # Hold smoothing (require 2 windows in a row to switch speakers)
-        held = []
-        curr = None
-        pending = None
-        run = 0
-        for v in verdicts:
-            if v is None or v == curr:
-                if v == curr:
-                    pending, run = None, 0
-                held.append(curr)
-                continue
-            if v == pending:
-                run += 1
-            else:
-                pending, run = v, 1
-            if curr is None or run >= 2:
-                curr, pending, run = v, None, 0
-            held.append(curr)
+    import scene_detection
+    try:
+        scenes, _ = scene_detection.detect_scenes(video_path)
+    except Exception as exc:
+        log_fn(f"   Scene detector unavailable ({exc}); trying content detection")
+        scenes, _ = scene_detection._detect_pyscenedetect(video_path)
+    # Include the lead-in and tail even when a detector omits them.
+    cuts = sorted({0, total_frames} | {
+        max(0, min(total_frames, t.get_frames())) for scene in scenes for t in scene})
+    boundaries = [(a, b) for a, b in zip(cuts, cuts[1:]) if b > a]
+    splits = {}
+    try:
+        import main as m
+        import reframe_v2
+        cameraman = m.SmoothedCameraman(1080, 1920, orig_w, orig_h, aspect_ratio=9 / 16)
+        tracker = m.SpeakerTracker(cooldown_frames=max(1, round(fps)))
+        raw_xs = reframe_v2._analyze_trajectory(video_path, boundaries,
+            ['TRACK'] * len(boundaries), fps, orig_w, orig_h, cameraman, tracker)
+        if len(raw_xs) != total_frames or any(x is None or not math.isfinite(x) for x in raw_xs):
+            raise RuntimeError("Incomplete camera trajectory")
+        xs = [max(0, min(round(x), max_x)) for x in raw_xs]
+    except Exception as exc:
+        log_fn(f"   Shot tracking unavailable ({exc}); using shot-local fallback")
+        xs = _shot_fallback(video_path, boundaries, fps, orig_w, orig_h, crop_w, log_fn)
 
-        first_valid = next((v for v in held if v is not None), 0)
-        held = [first_valid if v is None else v for v in held]
+    # Require simultaneous speakers within each shot. Alternating close-ups
+    # must never qualify as a two-person layout based on pooled positions.
+    try:
+        from scenedetect import FrameTimecode
+        normalized = [(FrameTimecode(a, fps), FrameTimecode(b, fps)) for a, b in boundaries]
+        found = split_layout.detect_split_scenes(video_path, normalized,
+                                                 ['GENERAL'] * len(normalized), enabled=True)
+        for idx, centres in found.items():
+            start, end = boundaries[idx]
+            splits[(start, end)] = centres
+            try:
+                held = active_speaker.hold(active_speaker.verdicts_for_scene(
+                    video_path, start, end, fps, centres))
+                if any(v is not None for v in held):
+                    xs[start:end] = active_speaker.speaker_xs(
+                        held, centres, crop_w, orig_w, end - start, fps)
+            except Exception as exc:
+                log_fn(f"   Speaker attribution unavailable in shot {start}: {exc}")
+    except Exception as exc:
+        log_fn(f"   Split layout analysis unavailable ({exc}); retaining focus framing")
 
-    except Exception as e:
-        log_fn(f"   ⚠️ Active speaker attribution fallback ({e}); using primary speaker.")
-        held = [0] * int(dur_s / window_s + 2)
+    switches = sorted({a for a, _ in boundaries if a > 0} |
+                      {f for f in range(1, len(xs)) if abs(xs[f] - xs[f - 1]) >= 80})
+    log_fn(f"   Shot-aware camera path: {len(boundaries)} shots, {len(splits)} two-shots")
+    return xs, fps, orig_w, orig_h, crop_w, crop_h, switches, splits
 
-    # Compute per-frame target X
-    per_frame_targets = []
-    prev_speaker = None
-    for f in range(total_frames):
-        w_idx = min(int((f / fps) / window_s), len(held) - 1) if held else 0
-        spk_idx = held[w_idx] if w_idx < len(held) else 0
-        if spk_idx != prev_speaker:
-            speaker_switches.append(f)
-            prev_speaker = spk_idx
-        cx = speakers[spk_idx]['cx']
-        tx = max(0, min(int(round(cx - crop_w / 2.0)), max_x))
-        per_frame_targets.append(tx)
 
-    # Smooth camera pan transitions (cinematic easing when switching speakers)
-    xs = []
-    current_x = per_frame_targets[0]
-    for i, target_x in enumerate(per_frame_targets):
-        diff = target_x - current_x
-        if abs(diff) > 20:
-            speed_px = 16.0 if abs(diff) > 250 else 6.0
-            direction = 1 if diff > 0 else -1
-            current_x += direction * speed_px
-            if (direction == 1 and current_x > target_x) or (direction == -1 and current_x < target_x):
-                current_x = target_x
-        else:
-            current_x = target_x
-        xs.append(max(0, min(int(round(current_x)), max_x)))
+def compute_dynamic_motion_zooms(n_frames: int, fps: float, speaker_switches: list = None,
+                                 max_zoom: float = 1.035, playback_speed: float = 1.0):
+    """A restrained push on long uninterrupted shots, held until the next cut.
 
-    log_fn(f"   🎯 Active speaker camera trajectory computed ({len(speaker_switches)} speaker turns).")
-    return xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches
-
-def compute_dynamic_motion_zooms(n_frames: int, fps: float, speaker_switches: list = None, max_zoom: float = 1.13):
+    Timings are in delivered-video seconds. Short conversational turns remain
+    still; long shots get one slow push instead of repeated zoom-in/out cycles.
     """
-    Adds professional, cinematic motion zoom in and zoom out animations:
-    - Slowly pushes in during speaker emphasis (1.0x -> max_zoom) with smoothstep easing.
-    - Holds at peak zoom during core points.
-    - Gently eases back out (max_zoom -> 1.0x).
-    - Resets smoothly when camera pans to a new speaker.
-    """
-    zooms = [1.0] * n_frames
-    dur_s = n_frames / fps
-    if dur_s < 4.0:
+    zooms = [1.0] * max(0, n_frames)
+    if not zooms:
         return zooms
-
-    def smoothstep(t):
-        t = max(0.0, min(1.0, t))
-        return t * t * (3.0 - 2.0 * t)
-
-    # Generate rhythmic motion zoom cycles every 5 to 7 seconds
-    cycle_s = 6.0
-    rise_s = 1.2
-    fall_s = 1.2
-
-    num_cycles = max(1, int(dur_s / cycle_s))
-    zoom_beats = []
-    for c in range(num_cycles):
-        start_s = c * cycle_s + 1.0
-        end_s = min(dur_s - 0.5, start_s + 4.5)
-        if end_s - start_s >= 2.5:
-            zoom_beats.append((start_s, end_s))
-
-    for start_s, end_s in zoom_beats:
-        hold_s = max(0.4, end_s - start_s - rise_s - fall_s)
-        total_s = rise_s + hold_s + fall_s
-        for f in range(n_frames):
-            t = f / fps
-            if start_s <= t <= start_s + total_s:
-                dt = t - start_s
-                if dt < rise_s:
-                    amt = smoothstep(dt / rise_s)
-                elif dt < rise_s + hold_s:
-                    amt = 1.0
-                else:
-                    amt = 1.0 - smoothstep((dt - rise_s - hold_s) / fall_s)
-                zooms[f] = max(zooms[f], 1.0 + (max_zoom - 1.0) * amt)
-
-    # Reset zoom smoothly during speaker switches
-    if speaker_switches:
-        reset_window = int(fps * 0.8)
-        for sw in speaker_switches:
-            if sw > 0:
-                for f in range(max(0, sw - reset_window), min(n_frames, sw + reset_window)):
-                    factor = abs(f - sw) / float(reset_window)
-                    zooms[f] = 1.0 + (zooms[f] - 1.0) * factor
-
+    if not math.isfinite(fps) or fps <= 0 or not math.isfinite(playback_speed) or playback_speed <= 0:
+        raise ValueError("Frame rate and playback speed must be positive")
+    if not math.isfinite(max_zoom):
+        raise ValueError("Zoom must be finite")
+    # Keep automatic motion below 4%, even if an old caller supplies 1.13.
+    peak = max(1.0, min(max_zoom, 1.04))
+    delivered_fps = fps * playback_speed
+    cuts = sorted({0, n_frames} | {
+        int(f) for f in (speaker_switches or []) if 0 < f < n_frames})
+    for start, end in zip(cuts, cuts[1:]):
+        duration = (end - start) / delivered_fps
+        if duration < 6.0 or peak <= 1.0:
+            continue
+        settle_seconds = 1.5
+        push_seconds = min(5.0, duration - settle_seconds - 1.0)
+        for frame in range(start, end):
+            elapsed = (frame - start) / delivered_fps
+            progress = max(0.0, min(1.0, (elapsed - settle_seconds) / push_seconds))
+            eased = progress * progress * (3.0 - 2.0 * progress)
+            zooms[frame] = 1.0 + (peak - 1.0) * eased
     return zooms
+
 
 def compute_crop_boxes(xs, zooms, crop_w, crop_h, orig_w, orig_h):
     """Computes frame (w, h, x, y) ensuring natural headroom and centered speaker framing."""
@@ -546,20 +479,55 @@ def generate_sendcmd_boxes(boxes, fps, cmd_path, speed=1.0):
     for i, box in enumerate(boxes):
         if box == prev:
             continue
-        t = (i / fps) / speed
+        # Place commands between frames. Rounding an exact frame timestamp up
+        # can defer a scene-cut crop until the NEXT frame (especially after
+        # setpts speed scaling quantizes the input time base).
+        t = max(0.0, (i - 0.5) / fps / speed)
         w, h, x, y = box
         pw, ph, px, py = prev if prev else (None, None, None, None)
         if w != pw:
-            lines.append(f"{t:.4f} crop@c w {w};")
+            lines.append(f"{t:.9f} crop@c w {w};")
         if h != ph:
-            lines.append(f"{t:.4f} crop@c h {h};")
+            lines.append(f"{t:.9f} crop@c h {h};")
         if x != px:
-            lines.append(f"{t:.4f} crop@c x {x};")
+            lines.append(f"{t:.9f} crop@c x {x};")
         if y != py:
-            lines.append(f"{t:.4f} crop@c y {y};")
+            lines.append(f"{t:.9f} crop@c y {y};")
         prev = box
     with open(cmd_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
+
+def manual_reframe_filtergraph(first_box, command_path, speed, orig_w, orig_h,
+                              fps, total_frames, splits=None):
+    """Use focus framing on close-ups and stack only validated two-shots."""
+    from ffmpeg_utils import escape_filter_value
+    if not math.isfinite(speed) or speed <= 0:
+        raise ValueError("Playback speed must be positive")
+    if splits and not isinstance(splits, dict):  # legacy single-shot caller
+        splits = {(0, total_frames): splits}
+    splits = splits or {}
+    count = len(splits)
+    w, h, x, y = first_box
+    source = f"[0:v]setpts=(PTS-STARTPTS)/{speed}"
+    source += (f",split={count + 1}[focus]" +
+               ''.join(f"[shot{i}]" for i in range(count)) if count else "[focus]")
+    parts = [source + ';',
+             f"[focus]sendcmd=f='{escape_filter_value(command_path)}',"
+             f"crop@c=w={w}:h={h}:x={x}:y={y},"
+             "scale=1080:1920:flags=lanczos,setsar=1[base0];"]
+    for i, ((start, end), (left, right)) in enumerate(sorted(splits.items())):
+        tw, th, tx, ty, half = split_layout.split_geometry(orig_w, orig_h, 1080, 1920, left)
+        bw, bh, bx, by, _ = split_layout.split_geometry(orig_w, orig_h, 1080, 1920, right)
+        parts.extend([
+            f"[shot{i}]split=2[top{i}][bot{i}];",
+            f"[top{i}]crop={tw}:{th}:{tx}:{ty},scale=1080:{half}[t{i}];",
+            f"[bot{i}]crop={bw}:{bh}:{bx}:{by},scale=1080:{half}[b{i}];",
+            f"[t{i}][b{i}]vstack=inputs=2,pad=1080:1920:0:0,setsar=1[stack{i}];",
+            f"[base{i}][stack{i}]overlay=enable='gte(t,{max(0, start - 0.5) / fps / speed:.9f})*"
+            f"lt(t,{(end - 0.5) / fps / speed:.9f})'[base{i+1}];"])
+    parts.extend([f"[base{count}]null[v];", f"[0:a]atempo={speed}[a]"])
+    return ''.join(parts)
+
 
 def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
                         clean_out_video: str, subtitled_out_video: str,
@@ -567,7 +535,7 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
     """
     Renders one manual clip with:
     - Active speaker face detection & smooth cinematic tracking
-    - Dynamic motion zoom in/out animations
+    - Subtle, shot-aware camera motion
     - 1.20x speed scaling
     - 3.0s black-box yellow hook banner
     - Animated word-by-word karaoke captions
@@ -592,13 +560,18 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
 
     # 2. Active speaker detection and dynamic framing
     log_fn("🔍 Performing active speaker face detection & camera tracking...")
-    xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches = compute_active_speaker_trajectory(raw_segment, log_fn=log_fn)
+    res = compute_active_speaker_trajectory(raw_segment, log_fn=log_fn)
+    if len(res) == 8:
+        xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches, split_pair = res
+    else:
+        xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches = res
+        split_pair = None
     duration_orig = len(xs) / fps
     duration_scaled = duration_orig / speed
 
-    # 3. Dynamic motion zoom in and zoom out animation
-    log_fn("🎥 Adding professional motion zoom in / zoom out animations...")
-    zooms = compute_dynamic_motion_zooms(len(xs), fps, speaker_switches, max_zoom=1.13)
+    # 3. Restrained motion, timed to the final playback speed and speaker cuts.
+    log_fn("🎥 Applying subtle camera motion on longer shots...")
+    zooms = compute_dynamic_motion_zooms(len(xs), fps, speaker_switches, playback_speed=speed)
     boxes = compute_crop_boxes(xs, zooms, crop_w, crop_h, orig_w, orig_h)
 
     # 4. ASS Subtitles (Hook with yellow text + black background box, and karaoke captions)
@@ -613,14 +586,9 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
     reframed_path = os.path.join(work_dir, f"reframed_{clip_id}.mp4")
     rel_cmd = os.path.relpath(cmd_path, REPO_ROOT).replace("\\", "/")
 
-    first_w, first_h, first_x, first_y = boxes[0]
-    filtergraph = (
-        f"[0:v]setpts=PTS/{speed},"
-        f"sendcmd=f={rel_cmd},"
-        f"crop@c=w={first_w}:h={first_h}:x={first_x}:y={first_y},"
-        f"scale=1080:1920:flags=lanczos,setsar=1[v];"
-        f"[0:a]atempo={speed}[a]"
-    )
+    filtergraph = manual_reframe_filtergraph(
+        boxes[0], rel_cmd, speed, orig_w, orig_h, fps, len(xs),
+        split_pair if clip_data.get("layout", "focus") == "split" else None)
 
     log_fn(f"🎬 Rendering vertical 9:16 short at {speed}x speed with active speaker framing...")
     reframe_cmd = [

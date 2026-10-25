@@ -169,12 +169,16 @@ _DETECTOR_LOCK = threading.Lock()
 def _detector():
     global _DETECTOR
     if _DETECTOR is None:
-        import mediapipe as mp
-        # model_selection=1: the full-range model, so the small faces of a
-        # GENERAL (blurred-backdrop) layout are found too.
-        _DETECTOR = mp.solutions.face_detection.FaceDetection(
-            model_selection=1, min_detection_confidence=0.5)
-    return _DETECTOR
+        try:
+            import mediapipe as mp
+            if hasattr(mp, "solutions") and hasattr(mp.solutions, "face_detection"):
+                _DETECTOR = mp.solutions.face_detection.FaceDetection(
+                    model_selection=1, min_detection_confidence=0.5)
+            else:
+                _DETECTOR = False
+        except Exception:
+            _DETECTOR = False
+    return _DETECTOR if _DETECTOR is not False else None
 
 
 def detect_faces(video_path, window_start=0.0, window_end=None, samples=SAMPLES):

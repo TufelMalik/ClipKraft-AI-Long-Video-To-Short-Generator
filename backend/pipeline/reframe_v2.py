@@ -264,6 +264,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
     if small_h % 2:
         small_h += 1
     scale = orig_w / small_w
+    scale_y = orig_h / small_h
     frame_bytes = small_w * small_h * 3
 
     proc = subprocess.Popen(
@@ -275,6 +276,7 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
     xs = []
     frame_number = 0
     current_scene_index = 0
+    decoded = False
     try:
         while True:
             buf = proc.stdout.read(frame_bytes)
@@ -312,7 +314,8 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                 if frame_number % m.DETECT_STRIDE == 0 or cut:
                     candidates = m.detect_face_candidates(frame)
                     for cand in candidates:
-                        cand['box'] = [int(v * scale) for v in cand['box']]
+                        cand['box'] = [int(v * s) for v, s in
+                                       zip(cand['box'], (scale, scale_y, scale, scale_y))]
                         cand['score'] = cand['box'][2] * cand['box'][3]
                     target_box = tracker.get_target(candidates, frame_number, orig_w)
                     if target_box:
@@ -320,15 +323,24 @@ def _analyze_trajectory(input_video, scenes_boundaries, scene_strategies,
                     elif frame_number % m.YOLO_FALLBACK_STRIDE == 0 or cut:
                         person_box = m.detect_person_yolo(frame)
                         if person_box:
-                            cameraman.update_target([int(v * scale) for v in person_box])
+                            cameraman.update_target([int(v * s) for v, s in
+                                zip(person_box, (scale, scale_y, scale, scale_y))])
 
                 x1, _y1, _x2, _y2 = cameraman.get_crop_box(force_snap=is_scene_start)
                 xs.append(x1)
 
             frame_number += 1
+        decoded = True
     finally:
         proc.stdout.close()
-        proc.wait()
+        if not decoded and proc.poll() is None:
+            proc.terminate()
+        returncode = proc.wait()
+
+    if returncode:
+        raise RuntimeError(f"trajectory decoder failed (ffmpeg exit {returncode})")
+    if not xs:
+        raise RuntimeError("trajectory decoder returned no frames")
 
     return xs
 
@@ -447,10 +459,13 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
                 input_video, start_f, end_f, fps, splits[start_f])
             if not active_speaker.is_conversation(verdicts):
                 a, b = active_speaker.shares(verdicts)
-                print(f"   🔇 Scene {scene_idx}: one speaker holds the floor "
-                      f"({max(a, b):.0%}) — not stacking")
-                del splits[start_f]
-                strategies[scene_idx] = 'GENERAL'
+                if active_speaker.CUT_MODE:
+                    strategies[scene_idx] = 'ALTERNATE'
+                    alternates[start_f] = (
+                        active_speaker.hold(verdicts), splits.pop(start_f))
+                else:
+                    print(f"   🪞 Scene {scene_idx}: one speaker dominant "
+                          f"({max(a, b):.0%}) — retaining stacked split layout")
             elif active_speaker.CUT_MODE:
                 strategies[scene_idx] = 'ALTERNATE'
                 alternates[start_f] = (

@@ -107,10 +107,28 @@ OUTPUT — RETURN ONLY VALID JSON (no markdown, no comments). Order clips by pre
 # volume mounted over the workdir doesn't trigger a re-download at startup.
 model = YOLO(os.environ.get("YOLO_MODEL_PATH", "yolov8n.pt"))
 
-# --- MediaPipe Setup ---
-# Use standard Face Detection (BlazeFace) for speed
-mp_face_detection = mp.solutions.face_detection
-face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+# --- MediaPipe / Face Detection Setup ---
+# Support legacy MediaPipe solutions, new MediaPipe Tasks, and YOLO
+face_detector_task = None
+face_detection = None
+DEFAULT_TFLITE = os.path.join(_REPO_ROOT, 'blaze_face_short_range.tflite')
+
+if hasattr(mp, 'solutions') and hasattr(mp.solutions, 'face_detection'):
+    try:
+        mp_face_detection = mp.solutions.face_detection
+        face_detection = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+    except Exception:
+        pass
+
+if face_detection is None and os.path.exists(DEFAULT_TFLITE):
+    try:
+        from mediapipe.tasks import python as mp_python
+        from mediapipe.tasks.python import vision as mp_vision
+        base_options = mp_python.BaseOptions(model_asset_path=DEFAULT_TFLITE)
+        options = mp_vision.FaceDetectorOptions(base_options=base_options, min_detection_confidence=0.35)
+        face_detector_task = mp_vision.FaceDetector.create_from_options(options)
+    except Exception:
+        pass
 
 # Consecutive detections a large target move must survive before the camera
 # follows it (see SmoothedCameraman.update_target). Env-overridable so the
@@ -196,6 +214,9 @@ class SmoothedCameraman:
         self._pending_target = None
         self._pending_count = 0
         self._snap_pending = True
+        # A missed detection at the cut must not retain the old shot's crop.
+        self.current_center_x = self.video_width / 2
+        self.target_center_x = self.video_width / 2
 
     def update_target(self, face_box):
         """Update the target centre from a detection, ignoring lone big jumps."""
@@ -456,26 +477,68 @@ def detect_face_candidates(frame):
     height, width, _ = frame.shape
     small, _scale = _detection_frame(frame)
     rgb_frame = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-    with DETECT_LOCK:
-        results = face_detection.process(rgb_frame)
-    
     candidates = []
     
-    if not results.detections:
-        return []
-        
-    for detection in results.detections:
-        bboxC = detection.location_data.relative_bounding_box
-        x = int(bboxC.xmin * width)
-        y = int(bboxC.ymin * height)
-        w = int(bboxC.width * width)
-        h = int(bboxC.height * height)
-        
-        candidates.append({
-            'box': [x, y, w, h],
-            'score': w * h # Area as score
-        })
-            
+    with DETECT_LOCK:
+        if face_detection is not None:
+            try:
+                results = face_detection.process(rgb_frame)
+                if results and results.detections:
+                    for detection in results.detections:
+                        bboxC = detection.location_data.relative_bounding_box
+                        x = int(bboxC.xmin * width)
+                        y = int(bboxC.ymin * height)
+                        w = int(bboxC.width * width)
+                        h = int(bboxC.height * height)
+                        candidates.append({
+                            'box': [x, y, w, h],
+                            'score': w * h
+                        })
+            except Exception:
+                pass
+        elif face_detector_task is not None:
+            try:
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+                res = face_detector_task.detect(mp_image)
+                if res and res.detections:
+                    small_h, small_w, _ = small.shape
+                    scale_x = width / float(small_w)
+                    scale_y = height / float(small_h)
+                    for d in res.detections:
+                        b = d.bounding_box
+                        x = int(b.origin_x * scale_x)
+                        y = int(b.origin_y * scale_y)
+                        w = int(b.width * scale_x)
+                        h = int(b.height * scale_y)
+                        candidates.append({
+                            'box': [x, y, w, h],
+                            'score': w * h
+                        })
+            except Exception:
+                pass
+
+    if not candidates and model is not None:
+        try:
+            with DETECT_LOCK:
+                yolo_res = model(small, verbose=False, classes=[0])
+                if yolo_res:
+                    small_h, small_w, _ = small.shape
+                    scale_x = width / float(small_w)
+                    scale_y = height / float(small_h)
+                    for r in yolo_res:
+                        for b in r.boxes:
+                            xyxy = b.xyxy[0].tolist()
+                            x = int(xyxy[0] * scale_x)
+                            y = int(xyxy[1] * scale_y)
+                            w = int((xyxy[2] - xyxy[0]) * scale_x)
+                            h = int((xyxy[3] - xyxy[1]) * scale_y * 0.4)
+                            candidates.append({
+                                'box': [x, y, w, h],
+                                'score': w * h
+                            })
+        except Exception:
+            pass
+
     return candidates
 
 def detect_person_yolo(frame):

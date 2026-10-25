@@ -46,8 +46,10 @@ def detect_scenes(video_path):
         try:
             return _detect_transnetv2(video_path)
         except Exception as e:
-            print(f"   ⚠️ TransNetV2 scene detection failed "
-                  f"({type(e).__name__}: {e}) — falling back to PySceneDetect")
+            try:
+                print(f"   TransNetV2 scene detection failed ({type(e).__name__}: {e}) - falling back to PySceneDetect")
+            except Exception:
+                pass
     return _detect_pyscenedetect(video_path)
 
 
@@ -130,7 +132,7 @@ def _detect_transnetv2(video_path):
 
     scene_list = [(FrameTimecode(s, fps), FrameTimecode(e, fps))
                   for s, e in bounds]
-    print(f"   🎬 Scene engine: TransNetV2 — {len(scene_list)} scenes")
+    print(f"   Scene engine: TransNetV2 — {len(scene_list)} scenes")
     return scene_list, fps
 
 

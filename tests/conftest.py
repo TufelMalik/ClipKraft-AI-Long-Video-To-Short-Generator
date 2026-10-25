@@ -15,6 +15,11 @@ for _p in [
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
+# backend/main.py is an ASGI compatibility entrypoint, not the video engine.
+# Keep the repository's main.py ahead of it, as when running the pipeline CLI.
+sys.path.remove(_repo_root)
+sys.path.insert(0, _repo_root)
+
 
 # Tests always run the app in self-host (BYOK) mode. app.py freezes
 # BILLING_ENABLED at import time and load_dotenv never overrides an existing

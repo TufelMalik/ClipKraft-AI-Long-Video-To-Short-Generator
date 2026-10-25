@@ -15,6 +15,11 @@ for _p in [
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 
+# `import main` is the video engine. backend/main.py is only an ASGI alias;
+# letting it shadow the engine silently sends camera tracking to its fallback.
+sys.path.remove(_REPO_ROOT)
+sys.path.insert(0, _REPO_ROOT)
+
 import llm_backend
 import re
 import uuid
@@ -1065,6 +1070,14 @@ def _recover_jobs_from_disk():
             continue
         if os.path.isfile(os.path.join(job_path, _RESUME_FILE)):
             continue  # in flight (interrupted or on the other instance): resume, not recover
+        if job_id.startswith("manual_"):
+            from manual_clip_worker import load_manual_job_state
+            manual_state = load_manual_job_state(job_id, job_path)
+            if manual_state is not None:
+                manual_state['logs'] = _TimedLog(manual_state.get('logs', []))
+                jobs[job_id] = manual_state
+                recovered += 1
+                continue
         json_files = glob.glob(os.path.join(job_path, "*_metadata.json"))
         if not json_files:
             continue
@@ -3456,6 +3469,11 @@ def _job_view_from_disk(job_id):
     job_path = os.path.join(OUTPUT_DIR, job_id)
     if not os.path.isdir(job_path):
         return None
+    if job_id.startswith("manual_"):
+        from manual_clip_worker import load_manual_job_state
+        manual_state = load_manual_job_state(job_id, job_path)
+        if manual_state is not None:
+            return manual_state
     m = _read_manifest(job_id)
     if m is None:
         if glob.glob(os.path.join(job_path, "*_metadata.json")):

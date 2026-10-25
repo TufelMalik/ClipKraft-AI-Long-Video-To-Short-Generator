@@ -212,7 +212,7 @@ MIN_SAMPLES = 8
 MAX_SAMPLES = 24
 
 
-def detect_split_scenes(video_path, scenes, strategies, samples=None):
+def detect_split_scenes(video_path, scenes, strategies, samples=None, *, enabled=None):
     """Upgrade qualifying scenes to SPLIT.
 
     Returns ``{scene_index: (left_centre, right_centre)}``. Only scenes the
@@ -223,7 +223,7 @@ def detect_split_scenes(video_path, scenes, strategies, samples=None):
     import cv2
     import main as m
 
-    if not ENABLED:
+    if not (ENABLED if enabled is None else enabled):
         return {}
 
     cap = cv2.VideoCapture(video_path)

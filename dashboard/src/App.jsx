@@ -33,6 +33,7 @@ import SessionTabBar from './components/SessionTabBar';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError, QUOTA_WALL_EVENT } from './lib/api';
 import { track } from './lib/analytics';
+import { createJobPoller } from './lib/jobPolling';
 
 // Enhanced "Encryption" using XOR + Base64 with a Salt
 // This is better than plain Base64 but still client-side.
@@ -296,16 +297,19 @@ function createDefaultSession(name = 'Video 1', extra = {}) {
   };
 }
 
-// Mock polling function
+// Bound a stalled request so it cannot block this job's next status check.
 const pollJob = async (jobId) => {
-  const res = await apiFetch(`/api/status/${jobId}`);
+  const res = await apiFetch(`/api/status/${jobId}`, { signal: AbortSignal.timeout(15000) });
+  if (res.status === 404) {
+    return { status: 'not_found', notFound: true };
+  }
   if (!res.ok) throw new Error('Status check failed');
   return res.json();
 };
 
 function App() {
   // Cloud auth/billing session (inert when billing is disabled).
-  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm } = useAuth();
+  const { billingEnabled, isManaged, isSignedIn, me, plan, refreshMe, jobRetentionSeconds, localLlm, loading: authLoading } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showTopUp, setShowTopUp] = useState(false);
   // Free plan: "want the watermark off?" once per job, when the clips land.
@@ -323,7 +327,13 @@ function App() {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed?.sessions) && parsed.sessions.length > 0) {
-          const valid = parsed.sessions.filter((s) => !s.timestamp || Date.now() - s.timestamp < SESSION_MAX_AGE);
+          const valid = parsed.sessions
+            .filter((s) => !s.timestamp || Date.now() - s.timestamp < SESSION_MAX_AGE)
+            .map((s) => ({
+              ...createDefaultSession(s?.name || 'Video 1'),
+              ...s,
+              durableClips: s?.durableClips || {},
+            }));
           if (valid.length > 0) return valid;
         }
       }
@@ -362,7 +372,12 @@ function App() {
 
   // Active Session Resolution
   const activeSession = useMemo(() => {
-    return sessions.find((s) => s.id === activeSessionId) || sessions[0] || createDefaultSession('Video 1');
+    const raw = sessions.find((s) => s.id === activeSessionId) || sessions[0] || createDefaultSession('Video 1');
+    return {
+      ...createDefaultSession(raw?.name || 'Video 1'),
+      ...raw,
+      durableClips: raw?.durableClips || {},
+    };
   }, [sessions, activeSessionId]);
 
   // Session update helpers
@@ -413,7 +428,7 @@ function App() {
   const setResults = (v) => updateActiveSession((s) => ({ results: typeof v === 'function' ? v(s.results) : v }));
   const setUploadMode = (v) => updateActiveSession((s) => ({ uploadMode: typeof v === 'function' ? v(s.uploadMode) : v }));
   const setQualityGate = (v) => updateActiveSession((s) => ({ qualityGate: typeof v === 'function' ? v(s.qualityGate) : v }));
-  const setDurableClips = (v) => updateActiveSession((s) => ({ durableClips: typeof v === 'function' ? v(s.durableClips) : v }));
+  const setDurableClips = (v) => updateActiveSession((s) => ({ durableClips: typeof v === 'function' ? v(s.durableClips || {}) : v }));
   const setEditingClip = (v) => updateActiveSession((s) => ({ editingClip: typeof v === 'function' ? v(s.editingClip) : v }));
   const setReframingClip = (v) => updateActiveSession((s) => ({ reframingClip: typeof v === 'function' ? v(s.reframingClip) : v }));
   const setBulkSub = (v) => updateActiveSession((s) => ({ bulkSub: typeof v === 'function' ? v(s.bulkSub) : v }));
@@ -469,11 +484,11 @@ function App() {
       uploadMode: source.uploadMode,
       results: source.results ? JSON.parse(JSON.stringify(source.results)) : null,
       projectState: source.projectState ? JSON.parse(JSON.stringify(source.projectState)) : null,
-      durableClips: { ...source.durableClips },
+      durableClips: { ...(source.durableClips || {}) },
       jobId: source.status === 'complete' ? source.jobId : null,
       status: source.status === 'complete' ? 'complete' : 'idle',
-      logs: source.status === 'complete' ? [...source.logs] : [],
-      logTimes: source.status === 'complete' ? [...source.logTimes] : [],
+      logs: source.status === 'complete' ? [...(source.logs || [])] : [],
+      logTimes: source.status === 'complete' ? [...(source.logTimes || [])] : [],
       processingMedia: source.processingMedia,
     });
     setSessions((prev) => [...prev, duplicated]);
@@ -1010,58 +1025,48 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isManaged, jobId, status, results?.clips?.length]);
 
-  // Multi-session background polling: polls all active jobs across all tabs independently
+  // Read current sessions without restarting the polling clock on every log
+  // update or editor action. Each job has independent in-flight and retry state.
+  const pollingSessionsRef = useRef(sessions);
+  useEffect(() => { pollingSessionsRef.current = sessions; }, [sessions]);
   useEffect(() => {
-    const activeJobs = sessions.filter(
-      (s) => s.jobId && (s.status === 'processing' || s.status === 'completed')
-    );
-    if (activeJobs.length === 0) return;
-
-    const interval = setInterval(async () => {
-      for (const s of activeJobs) {
-        try {
-          const data = await pollJob(s.jobId);
-          console.log(`Job status [${s.name || s.id}]:`, data);
-
-          setSessions((prevSessions) =>
-            prevSessions.map((session) => {
-              if (session.id !== s.id || session.jobId !== s.jobId) return session;
-
-              const updates = {};
-              if (data.result) updates.results = data.result;
-              if (data.partial) updates.partialJob = data.partial;
-              updates.queueInfo = data.status === 'queued' && data.queue ? data.queue : null;
-
-              if (data.status === 'completed') {
-                updates.queueInfo = null;
-                updates.status = 'complete';
-              } else if (data.status === 'failed') {
-                updates.status = 'error';
-                const errorMsg =
-                  data.error ||
-                  (data.logs && data.logs.length > 0 ? data.logs[data.logs.length - 1] : 'Process failed');
-                updates.jobError = readableError(errorMsg);
-                updates.logs = [...(session.logs || []), 'Error: ' + errorMsg];
-              } else if (data.logs) {
-                updates.logs = data.logs;
-                updates.logTimes = data.log_times || [];
-              }
-
-              return { ...session, ...updates };
-            })
-          );
-
-          if (data.status === 'completed' || data.status === 'failed') {
-            refreshMe();
+    if (authLoading) return;
+    return createJobPoller({
+      getSessions: () => pollingSessionsRef.current,
+      pollJob,
+      // Cloud projects may have durable files after their local job expires.
+      // Their existing library restore flow owns completed-project recovery.
+      reconcileCompleted: !billingEnabled,
+      onUpdate: (s, data) => {
+        setSessions((prevSessions) => prevSessions.map((session) => {
+          if (session.id !== s.id || session.jobId !== s.jobId) return session;
+          if (data.notFound || data.status === 'not_found') {
+            return { ...session, status: 'idle', jobId: null, results: null,
+              logs: [], logTimes: [], jobError: '', queueInfo: null,
+              processingMedia: null, noSource: true, durableClips: {}, partialJob: null };
           }
-        } catch (e) {
-          console.error(`Polling error for job ${s.jobId}:`, e);
-        }
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [sessions, refreshMe]);
+          const updates = {};
+          if (data.result) updates.results = data.result;
+          if (data.partial) updates.partialJob = data.partial;
+          updates.queueInfo = data.status === 'queued' && data.queue ? data.queue : null;
+          if (data.status === 'completed') {
+            updates.status = 'complete';
+          } else if (data.status === 'failed' || data.status === 'cancelled') {
+            updates.status = 'error';
+            const message = data.error || data.logs?.[data.logs.length - 1] || 'Process failed';
+            updates.jobError = readableError(message);
+            updates.logs = [...(session.logs || []), 'Error: ' + message];
+          } else if (data.logs) {
+            updates.logs = data.logs;
+            updates.logTimes = data.log_times || [];
+          }
+          return { ...session, ...updates };
+        }));
+        if (data.status === 'completed' || data.status === 'failed') refreshMe();
+      },
+      onError: (s) => console.warn(`Job ${s.jobId}: server unavailable; retrying with backoff.`),
+    });
+  }, [refreshMe, authLoading, billingEnabled]);
 
 
   // silent: background auto-fetch — never alert(), just log. Managed users need
@@ -1210,7 +1215,7 @@ function App() {
   // Social nudge visibility: managed users with clips on screen and no network
   // connected yet. userProfiles being empty (not yet fetched / none created)
   // also counts as "not connected" — that is the 97% case.
-  const connectedSocials = ((userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0])?.connected) || [];
+  const connectedSocials = ((userProfiles?.find((p) => p.username === uploadUserId) || userProfiles?.[0])?.connected) || [];
   const showSocialNudge = isManaged && !socialNudgeDismissed && connectedSocials.length === 0 && !tutorialLock;
 
   // One Seen event per job, only when the banner actually rendered.
@@ -2676,13 +2681,13 @@ function App() {
                           onUpgrade={isManaged ? openUpsell : null}
                           initialState={projectState?.clips?.find((c) => c.index === i) || null}
                           onStateChange={handleClipStateChange}
-                          durable={durableClips[i]}
+                          durable={durableClips?.[i] || null}
                           uploadPostKey={uploadPostKey}
                           uploadUserId={uploadUserId}
                           geminiApiKey={apiKey}
                           elevenLabsKey={elevenLabsKey}
                           isManaged={isManaged}
-                          connectedPlatforms={(userProfiles.find((p) => p.username === uploadUserId) || userProfiles[0])?.connected ?? null}
+                          connectedPlatforms={(userProfiles?.find((p) => p.username === uploadUserId) || userProfiles?.[0])?.connected ?? null}
                           onConnectSocials={isManaged ? handleConnectSocials : () => goToTab('settings')}
                           onPlay={(time) => handleClipPlay(time)}
                           onPause={handleClipPause}
