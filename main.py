@@ -59,6 +59,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module='google.protobuf'
 
 # Load environment variables
 load_dotenv()
+from local_api_key import load_local_gemini_key
+load_local_gemini_key()
 
 # --- Constants ---
 ASPECT_RATIO = 9 / 16

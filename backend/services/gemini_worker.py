@@ -15,6 +15,8 @@ from clip_selection import (clip_count_targets, clip_duration_bounds,
 from selection_quality import selection_quality_guidance
 
 load_dotenv()
+from local_api_key import load_local_gemini_key
+load_local_gemini_key()
 
 
 # --- Structured output schemas (passed as response_schema so the API

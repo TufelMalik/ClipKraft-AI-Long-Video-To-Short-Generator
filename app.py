@@ -55,6 +55,8 @@ import watermarked
 import media_auth
 
 load_dotenv()
+from local_api_key import load_local_gemini_key
+load_local_gemini_key()
 
 # Constants
 UPLOAD_DIR = "uploads"
