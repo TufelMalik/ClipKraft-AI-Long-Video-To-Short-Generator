@@ -23,7 +23,7 @@ jobs:
         run: >
           pip install pytest pillow httpx pydantic sqlalchemy greenlet numpy
           opencv-python-headless python-dotenv google-genai fastapi boto3
-          PyJWT email-validator python-multipart
+          PyJWT email-validator python-multipart -r requirements-longform.txt
       - name: Run tests
         env:
           PYTHONPATH: .:backend:backend/pipeline:backend/services:backend/utils:backend/api

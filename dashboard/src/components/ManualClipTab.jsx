@@ -21,7 +21,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
 
     // Features / Options
     const [speed, setSpeed] = useState(1.20);
-    const [addOutro, setAddOutro] = useState(true);
+    const [addOutro] = useState(true);
     const [outroPath, setOutroPath] = useState(DEFAULT_OUTRO_PATH);
     const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -147,7 +147,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                         try {
                             const errData = JSON.parse(xhr.responseText);
                             detail = errData.detail || detail;
-                        } catch (_) {}
+                        } catch (_) { /* keep the fallback error */ }
                         reject(new Error(detail));
                     }
                 };

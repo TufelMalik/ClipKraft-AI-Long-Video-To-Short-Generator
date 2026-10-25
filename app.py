@@ -106,6 +106,7 @@ CHILD_ENV_DENYLIST = frozenset({
     "SMTP_USER", "SMTP_PASSWORD",
     "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
     "GOOGLE_CLIENT_SECRET",
+    "YOUTUBE_CLIENT_SECRET", "YOUTUBE_CREDENTIAL_KEY", "LONGFORM_LOCAL_TOKEN",
     "AGENTLEDGER_API_KEY",
     "MANAGED_UPLOAD_POST_API_KEY", "MANAGED_GEMINI_API_KEY", "UPLOAD_POST_API_KEY",
     "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
@@ -1592,6 +1593,9 @@ def _job_is_active(job_id, now=None) -> bool:
         return True
     if (jobs.get(job_id) or {}).get('status') in ('queued', 'processing'):
         return True
+    from edit_project_store import lease_active
+    if lease_active(OUTPUT_DIR, job_id, now):
+        return True
     try:
         age = (time.time() if now is None else now) - os.path.getmtime(_manifest_path(job_id))
     except OSError:
@@ -1724,6 +1728,9 @@ def _sweep_retained_sources(now=None):
             if not name:
                 continue
             src = os.path.join(OUTPUT_DIR, job_id, os.path.basename(name))
+            from edit_project_store import lease_active
+            if lease_active(OUTPUT_DIR, job_id, now):
+                continue
             if (os.path.exists(src)
                     and now - os.path.getmtime(src) > SOURCE_RETENTION_SECONDS):
                 os.remove(src)
@@ -2477,6 +2484,10 @@ app.include_router(_mcp_server.router)
 # captions only, never the GPU) and the title/description/tag generator.
 import free_tools as _free_tools
 app.include_router(_free_tools.router)
+
+# Long-form editing has isolated flags, policies, storage and local-model settings.
+from edit_projects import build_router as _build_edit_router
+app.include_router(_build_edit_router(sys.modules[__name__]))
 
 # Enable CORS for frontend. Cloud mode locks this down to the configured origins;
 # self-host keeps the permissive wildcard it has always used.

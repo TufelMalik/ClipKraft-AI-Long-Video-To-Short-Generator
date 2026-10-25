@@ -1,0 +1,2 @@
+# Optional YouTube credential encryption; editing otherwise reuses requirements.txt.
+cryptography==50.0.2

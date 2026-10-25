@@ -40,6 +40,7 @@ output/
 
 # Cache dirs
 .cache/
+.longform/
 .config/
 # Multi-agent Skills
 .agents/

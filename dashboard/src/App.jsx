@@ -12,6 +12,7 @@ import SaaShortsTab from './components/SaaShortsTab';
 import UGCGallery from './components/UGCGallery';
 import ScheduleWeekModal from './components/ScheduleWeekModal';
 import ClipEditor from './components/ClipEditor';
+import LongVideoEditor from './components/LongVideoEditor';
 import ReframeEditor from './components/ReframeEditor';
 import UsageMeter from './components/UsageMeter';
 import TopUpModal from './components/TopUpModal';
@@ -2827,6 +2828,7 @@ function App() {
       )}
 
 
+      <LongVideoEditor jobId={jobId} />
       {editingClip !== null && results?.clips?.[editingClip] && (
         <ClipEditor
           jobId={jobId}

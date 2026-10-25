@@ -55,6 +55,22 @@ def _upload(up, job_id, age=OLD):
 
 
 class TestJobDirSweep:
+    def test_longform_lease_protects_until_expiry(self, disk):
+        from edit_project_store import Store
+        out, up = disk
+        directory = _job_dir(out, 'longform')
+        source = _upload(up, 'longform')
+        store = Store(out)
+        store.put('lease', 'longform', {'expires': time.time() + 60})
+        app_module._sweep_expired_job_dirs(time.time())
+        app_module._sweep_expired_uploads(time.time())
+        assert directory.exists() and source.exists()
+        store.put('lease', 'longform', {'expires': time.time() - 1})
+        app_module._sweep_expired_job_dirs(time.time())
+        app_module._sweep_expired_uploads(time.time())
+        assert not directory.exists() and not source.exists()
+        assert store.path.exists()  # immutable metadata survives media expiry
+
     def test_finished_old_job_is_purged(self, disk):
         out, _ = disk
         d = _job_dir(out, "done")
