@@ -29,6 +29,7 @@ import HistoryTab from './components/HistoryTab';
 import AutopilotTab from './components/AutopilotTab';
 import ProfileMenu from './components/ProfileMenu';
 import Modal from './components/ui/Modal';
+import SessionTabBar from './components/SessionTabBar';
 import { useAuth } from './contexts/AuthContext';
 import { apiFetch, apiJson, QuotaError, QUOTA_WALL_EVENT } from './lib/api';
 import { track } from './lib/analytics';
@@ -242,6 +243,7 @@ const UserProfileSelector = ({ profiles, selectedUserId, onSelect, onConnect }) 
   );
 };
 
+const MULTI_SESSIONS_KEY = 'openshorts_multi_sessions_v2';
 const SESSION_KEY = 'openshorts_session';
 
 // The server's own explanation for a rejected/failed job, readable: FastAPI
@@ -262,6 +264,38 @@ const readableError = (raw) => {
 // already purged server-side fails gracefully and clears the saved session.
 const SESSION_MAX_AGE = 86400000; // 24 hours
 
+// Session template factory
+function createDefaultSession(name = 'Video 1', extra = {}) {
+  return {
+    id: 'sess_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    name,
+    jobId: null,
+    status: 'idle', // idle, processing, complete, error
+    results: null,
+    logs: [],
+    logTimes: [],
+    processingMedia: null,
+    uploadMode: 'openshorts', // 'openshorts' | 'edit-video'
+    qualityGate: null,
+    projectState: null,
+    noSource: false,
+    partialJob: null,
+    firstVideoJob: false,
+    queueInfo: null,
+    jobError: '',
+    durableClips: {},
+    editingClip: null,
+    reframingClip: null,
+    bulkSub: { running: false, current: 0, total: 0, errors: 0 },
+    downloadingAll: false,
+    syncedTime: 0,
+    isSyncedPlaying: false,
+    syncTrigger: 0,
+    timestamp: Date.now(),
+    ...extra,
+  };
+}
+
 // Mock polling function
 const pollJob = async (jobId) => {
   const res = await apiFetch(`/api/status/${jobId}`);
@@ -281,18 +315,170 @@ function App() {
   const [tutorialPhase, setTutorialPhase] = useState(null); // null | intro | coach | celebrate
   const [showTrialUpgrade, setShowTrialUpgrade] = useState(false);
   const [topUpInfo, setTopUpInfo] = useState({});
-  // {processed_minutes, total_minutes} when the running/finished job clips
-  // only the first part of the source (the quota wall's free offer).
-  const [partialJob, setPartialJob] = useState(null);
-  // The free plan's first video, clipped whole past the 20-minute balance.
-  const [firstVideoJob, setFirstVideoJob] = useState(false);
-  // {position, ahead, eta_seconds} while the job waits in line, else null.
-  const [queueInfo, setQueueInfo] = useState(null);
-  // Why the last job could not start or failed, in plain words (or '').
-  const [jobError, setJobError] = useState('');
-  // Durable R2 URLs (per clip index) for the current job — used as a fallback when
-  // the ephemeral local /videos/ files have been cleaned up (e.g. after a reload).
-  const [durableClips, setDurableClips] = useState({});
+
+  // Multi-session State Management
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const stored = localStorage.getItem(MULTI_SESSIONS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed?.sessions) && parsed.sessions.length > 0) {
+          const valid = parsed.sessions.filter((s) => !s.timestamp || Date.now() - s.timestamp < SESSION_MAX_AGE);
+          if (valid.length > 0) return valid;
+        }
+      }
+      // Migrate from single legacy session if present
+      const legacy = localStorage.getItem(SESSION_KEY);
+      if (legacy) {
+        const s = JSON.parse(legacy);
+        if (Date.now() - s.timestamp < SESSION_MAX_AGE && s.jobId && s.status && s.status !== 'idle') {
+          return [createDefaultSession('Video 1', {
+            jobId: s.jobId,
+            status: s.status,
+            results: s.results || null,
+            processingMedia: s.processingMedia || (!s.noSource ? { type: 'server', payload: `/api/source/${s.jobId}` } : null),
+            noSource: !!s.noSource,
+            projectState: s.projectState || null,
+            uploadMode: s.uploadMode || 'openshorts',
+          })];
+        }
+      }
+    } catch (_) { /* ignore */ }
+    return [createDefaultSession('Video 1')];
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState(() => {
+    try {
+      const stored = localStorage.getItem(MULTI_SESSIONS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.activeId && parsed?.sessions?.some((s) => s.id === parsed.activeId)) {
+          return parsed.activeId;
+        }
+      }
+    } catch (_) { /* ignore */ }
+    return sessions[0]?.id || 'sess_default';
+  });
+
+  // Active Session Resolution
+  const activeSession = useMemo(() => {
+    return sessions.find((s) => s.id === activeSessionId) || sessions[0] || createDefaultSession('Video 1');
+  }, [sessions, activeSessionId]);
+
+  // Session update helpers
+  const updateSession = (sessionId, updatesOrFn) => {
+    setSessions((prevSessions) =>
+      prevSessions.map((session) => {
+        if (session.id !== sessionId) return session;
+        const updates = typeof updatesOrFn === 'function' ? updatesOrFn(session) : updatesOrFn;
+        return {
+          ...session,
+          ...updates,
+          timestamp: Date.now(),
+        };
+      })
+    );
+  };
+
+  const updateActiveSession = (updatesOrFn) => {
+    updateSession(activeSession.id, updatesOrFn);
+  };
+
+  // Destructured active session variables for transparent downstream compatibility
+  const {
+    jobId,
+    status,
+    results,
+    logs,
+    logTimes,
+    processingMedia,
+    uploadMode,
+    qualityGate,
+    projectState,
+    partialJob,
+    firstVideoJob,
+    queueInfo,
+    jobError,
+    durableClips,
+    editingClip,
+    reframingClip,
+    bulkSub,
+    downloadingAll,
+    syncedTime,
+    isSyncedPlaying,
+    syncTrigger,
+  } = activeSession;
+
+  // Active session setters used across UI callbacks and effects
+  const setResults = (v) => updateActiveSession((s) => ({ results: typeof v === 'function' ? v(s.results) : v }));
+  const setUploadMode = (v) => updateActiveSession((s) => ({ uploadMode: typeof v === 'function' ? v(s.uploadMode) : v }));
+  const setQualityGate = (v) => updateActiveSession((s) => ({ qualityGate: typeof v === 'function' ? v(s.qualityGate) : v }));
+  const setDurableClips = (v) => updateActiveSession((s) => ({ durableClips: typeof v === 'function' ? v(s.durableClips) : v }));
+  const setEditingClip = (v) => updateActiveSession((s) => ({ editingClip: typeof v === 'function' ? v(s.editingClip) : v }));
+  const setReframingClip = (v) => updateActiveSession((s) => ({ reframingClip: typeof v === 'function' ? v(s.reframingClip) : v }));
+  const setBulkSub = (v) => updateActiveSession((s) => ({ bulkSub: typeof v === 'function' ? v(s.bulkSub) : v }));
+  const setDownloadingAll = (v) => updateActiveSession((s) => ({ downloadingAll: typeof v === 'function' ? v(s.downloadingAll) : v }));
+  const setSyncedTime = (v) => updateActiveSession((s) => ({ syncedTime: typeof v === 'function' ? v(s.syncedTime) : v }));
+  const setIsSyncedPlaying = (v) => updateActiveSession((s) => ({ isSyncedPlaying: typeof v === 'function' ? v(s.isSyncedPlaying) : v }));
+  const setSyncTrigger = (v) => updateActiveSession((s) => ({ syncTrigger: typeof v === 'function' ? v(s.syncTrigger) : v }));
+
+  // Tab operations
+  const handleSelectSession = (sessionId) => {
+    if (sessionId === activeSessionId) return;
+    if (isSyncedPlaying) {
+      setIsSyncedPlaying(false);
+    }
+    setActiveSessionId(sessionId);
+  };
+
+  const handleAddSession = () => {
+    const existingNames = new Set(sessions.map((s) => s.name));
+    let nextNum = sessions.length + 1;
+    while (existingNames.has(`Video ${nextNum}`)) {
+      nextNum++;
+    }
+    const newSession = createDefaultSession(`Video ${nextNum}`);
+    setSessions((prev) => [...prev, newSession]);
+    setActiveSessionId(newSession.id);
+  };
+
+  const handleCloseSession = (sessionIdToClose) => {
+    setSessions((prev) => {
+      const remaining = prev.filter((s) => s.id !== sessionIdToClose);
+      if (remaining.length === 0) {
+        const fresh = createDefaultSession('Video 1');
+        setActiveSessionId(fresh.id);
+        return [fresh];
+      }
+      if (activeSessionId === sessionIdToClose) {
+        const closedIdx = prev.findIndex((s) => s.id === sessionIdToClose);
+        const newActive = remaining[Math.min(closedIdx, remaining.length - 1)];
+        setActiveSessionId(newActive.id);
+      }
+      return remaining;
+    });
+  };
+
+  const handleRenameSession = (sessionId, newName) => {
+    updateSession(sessionId, { name: newName });
+  };
+
+  const handleDuplicateSession = (sessionIdToDup) => {
+    const source = sessions.find((s) => s.id === sessionIdToDup) || activeSession;
+    const duplicated = createDefaultSession(`${source.name} (Copy)`, {
+      uploadMode: source.uploadMode,
+      results: source.results ? JSON.parse(JSON.stringify(source.results)) : null,
+      projectState: source.projectState ? JSON.parse(JSON.stringify(source.projectState)) : null,
+      durableClips: { ...source.durableClips },
+      jobId: source.status === 'complete' ? source.jobId : null,
+      status: source.status === 'complete' ? 'complete' : 'idle',
+      logs: source.status === 'complete' ? [...source.logs] : [],
+      logTimes: source.status === 'complete' ? [...source.logTimes] : [],
+      processingMedia: source.processingMedia,
+    });
+    setSessions((prev) => [...prev, duplicated]);
+    setActiveSessionId(duplicated.id);
+  };
 
   const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_key') || '');
   // Social API State - Load encrypted or plain
@@ -325,18 +511,10 @@ function App() {
     try { return localStorage.getItem('os_social_nudge_dismissed') === '1'; } catch (_) { return false; }
   });
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [jobId, setJobId] = useState(null);
-  const [status, setStatus] = useState('idle'); // idle, processing, complete, error
-  const [results, setResults] = useState(null);
+
   // Best clips first. The backend hands them back in transcript order, which
   // buries the strongest one wherever it happens to fall in the video — and
   // the first card is the one people actually watch and publish.
-  //
-  // The ORIGINAL array position travels with each clip and is what gets passed
-  // down as `index`: it is the clip's identity everywhere else (clip_index on
-  // /api/subtitle, /api/edit and publishing, the clip-N.mp4 download name, the
-  // saved per-clip project state). Sorting the array itself would silently
-  // repoint all of that at the wrong clip.
   const rankedClips = useMemo(() => {
     const clips = results?.clips;
     if (!Array.isArray(clips)) return [];
@@ -345,27 +523,16 @@ function App() {
       .sort((a, b) => {
         const sa = Number.isFinite(a.clip?.predicted_score) ? a.clip.predicted_score : -1;
         const sb = Number.isFinite(b.clip?.predicted_score) ? b.clip.predicted_score : -1;
-        // Ties (and clips with no score at all) keep transcript order.
         return sb - sa || a.index - b.index;
       });
   }, [results]);
-  // Bulk subtitles: apply one style to every clip of the job (triggered from
-  // within a clip's subtitle modal via "apply to all").
-  const [bulkSub, setBulkSub] = useState({ running: false, current: 0, total: 0, errors: 0 });
-  const [downloadingAll, setDownloadingAll] = useState(false);
-  // Pre-flight quality gate: { info: {max_height, min_height, cookies_invalid}, data }
-  const [qualityGate, setQualityGate] = useState(null);
-  const [logs, setLogs] = useState([]);
-  // When each server log line arrived (epoch s, parallel to logs), from /api/status.
-  const [logTimes, setLogTimes] = useState([]);
+
   // Collapsed on phones: the log tail is the least useful thing on a 360px
   // screen and it was pushing the actual clips a full scroll down.
   const [logsVisible, setLogsVisible] = useState(() => {
     try { return window.innerWidth >= 768; } catch { return true; }
   });
-  const [processingMedia, setProcessingMedia] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, settings
-  const [uploadMode, setUploadMode] = useState('openshorts'); // 'openshorts' | 'edit-video'
   // Mobile only: the full nav lives in a drawer behind the header's menu button.
   const [navOpen, setNavOpen] = useState(false);
   // Desktop sidebar collapse state (persisted across sessions)
@@ -381,7 +548,7 @@ function App() {
   useEffect(() => {
     try {
       localStorage.setItem('os_sidebar_open', String(sidebarOpen));
-    } catch {}
+    } catch (_) { /* ignore */ }
   }, [sidebarOpen]);
 
   // Keyboard shortcut Ctrl+B / Cmd+B toggles desktop sidebar
@@ -396,27 +563,13 @@ function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  // Reopened-project state (paid mode): per-clip {index, server_file, active_layers}
-  // restored from the backend so ResultCards resume editing where they left off.
-  const [projectState, setProjectState] = useState(null);
-  // True when the current job was reopened from the library: its source video
-  // was never persisted, so the session must not fall back to /api/source.
-  const [noSource, setNoSource] = useState(false);
 
   const [sessionRecovered, setSessionRecovered] = useState(false);
   const [showScheduleWeek, setShowScheduleWeek] = useState(false);
-  // Clip editor overlay: index of the clip being edited, or null.
-  const [editingClip, setEditingClip] = useState(null);
-  const [reframingClip, setReframingClip] = useState(null);
 
   // Silent-success "saved" states for the settings key inputs (design.md: no alert popups)
   const [elevenLabsSaved, setElevenLabsSaved] = useState(false);
   const [falSaved, setFalSaved] = useState(false);
-
-  // Sync state for original video playback
-  const [syncedTime, setSyncedTime] = useState(0);
-  const [isSyncedPlaying, setIsSyncedPlaying] = useState(false);
-  const [syncTrigger, setSyncTrigger] = useState(0);
 
   const handleClipPlay = (startTime) => {
     setSyncedTime(startTime);
@@ -431,23 +584,25 @@ function App() {
   // --- Project persistence (paid mode) ---
   // Debounced sync of each clip's browser-only edit state (Remotion layers +
   // current server file) to the backend, so a reopened project resumes intact.
-  const clipStateSync = useRef({ jobId: null, pending: {}, files: {}, timer: null });
+  const clipStateSync = useRef({});
   // Read by in-flight async chases to notice that the user moved on to another job.
   const jobIdRef = useRef(jobId);
   useEffect(() => { jobIdRef.current = jobId; }, [jobId]);
 
-  const flushClipState = () => {
-    const s = clipStateSync.current;
+  const flushClipState = (forJobId = jobId) => {
+    if (!forJobId) return;
+    const s = clipStateSync.current[forJobId];
+    if (!s) return;
     if (s.timer) { clearTimeout(s.timer); s.timer = null; }
-    const entries = Object.entries(s.pending);
-    if (!s.jobId || entries.length === 0) return;
+    const entries = Object.entries(s.pending || {});
+    if (entries.length === 0) return;
     const clips = entries.map(([i, v]) => ({
       index: Number(i),
       active_layers: v.activeLayers,
       server_file: v.serverVideoFile,
     }));
     s.pending = {};
-    apiFetch(`/api/projects/${s.jobId}/state`, {
+    apiFetch(`/api/projects/${forJobId}/state`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ clips }),
@@ -455,11 +610,12 @@ function App() {
   };
 
   // One /api/history read, reduced to this job's clips.
-  const fetchDurableMap = async () => {
+  const fetchDurableMap = async (targetJobId = jobId) => {
+    if (!targetJobId) return {};
     const d = await apiJson('/api/history');
     const map = {};
     for (const v of (d.videos || [])) {
-      if (v.job_id === jobId && v.clip_index != null) map[v.clip_index] = { url: v.view_url, filename: v.filename };
+      if (v.job_id === targetJobId && v.clip_index != null) map[v.clip_index] = { url: v.view_url, filename: v.filename };
     }
     return map;
   };
@@ -527,7 +683,7 @@ function App() {
         if (cancelled || jobIdRef.current !== jobId) return;
         if (data?.result) setResults(data.result);
         if (!(data?.result?.clips || []).some(isMarked)) {
-          fetchDurableMap().then((m) => { if (!cancelled) setDurableClips(m); }).catch(() => {});
+          fetchDurableMap(jobId).then((m) => { if (!cancelled) setDurableClips(m); }).catch(() => {});
           return;
         }
       }
@@ -536,25 +692,25 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plan, isManaged, jobId]);
 
-  const chaseDurableFile = async (index, expectedFile) => {
-    const forJob = jobId;
+  const chaseDurableFile = async (targetJobId, index, expectedFile) => {
+    const forJob = targetJobId || jobId;
     for (const delay of [2500, 6000, 15000, 30000]) {
       await new Promise((r) => setTimeout(r, delay));
-      if (jobIdRef.current !== forJob) return;
       let map;
-      try { map = await fetchDurableMap(); } catch { return; }
-      // A new job started mid-chase: this map describes the old one, so dropping
-      // it here keeps it from overwriting the new job's URLs.
-      if (jobIdRef.current !== forJob) return;
-      setDurableClips(map);
+      try { map = await fetchDurableMap(forJob); } catch { return; }
+      setSessions((prev) =>
+        prev.map((s) => (s.jobId === forJob ? { ...s, durableClips: map } : s))
+      );
       if (map[index]?.filename === expectedFile) return;
     }
   };
 
   const handleClipStateChange = (index, state) => {
     if (!isManaged || !jobId) return;
-    const s = clipStateSync.current;
-    if (s.jobId !== jobId) { s.pending = {}; s.files = {}; s.jobId = jobId; }
+    if (!clipStateSync.current[jobId]) {
+      clipStateSync.current[jobId] = { pending: {}, files: {}, timer: null };
+    }
+    const s = clipStateSync.current[jobId];
     s.pending[index] = state;
     // Cards report on mount too, so only an actual change of server file means an
     // edit just landed. The first report per clip is the mount, never a chase.
@@ -563,10 +719,10 @@ function App() {
     if (file && files[index] !== file) {
       const isMount = files[index] === undefined;
       files[index] = file;
-      if (!isMount) chaseDurableFile(index, file);
+      if (!isMount) chaseDurableFile(jobId, index, file);
     }
     if (s.timer) clearTimeout(s.timer);
-    s.timer = setTimeout(flushClipState, 2000);
+    s.timer = setTimeout(() => flushClipState(jobId), 2000);
   };
 
   // A recut replaced the clip's server file with a fresh render (burned layers
@@ -574,9 +730,10 @@ function App() {
   // per-clip edit state, and let the ResultCard remount from the new file.
   const handleClipRerendered = (index, data) => {
     const newFile = (data.new_video_url || '').split('/').pop();
-    setResults((prev) => {
-      if (!prev?.clips?.[index]) return prev;
-      const clips = prev.clips.slice();
+    updateActiveSession((prev) => {
+      const currentClips = prev?.results?.clips;
+      if (!currentClips?.[index]) return prev;
+      const clips = currentClips.slice();
       clips[index] = {
         ...clips[index],
         video_url: data.new_video_url,
@@ -584,24 +741,26 @@ function App() {
         end: data.end,
         recipe: data.recipe,
       };
-      return { ...prev, clips };
-    });
-    setProjectState((prev) => {
-      if (!prev?.clips) return prev;
+
+      let newProjectState = prev.projectState;
+      if (newProjectState?.clips) {
+        newProjectState = {
+          ...newProjectState,
+          clips: newProjectState.clips.map((c) =>
+            c.index === index ? { ...c, server_file: newFile, active_layers: null } : c
+          ),
+        };
+      }
+
+      const nextDurable = { ...(prev.durableClips || {}) };
+      delete nextDurable[index];
+
       return {
         ...prev,
-        clips: prev.clips.map((c) => (c.index === index
-          ? { ...c, server_file: newFile, active_layers: null }
-          : c)),
+        results: { ...prev.results, clips },
+        projectState: newProjectState,
+        durableClips: nextDurable,
       };
-    });
-    // The old durable R2 object is deleted when the recut is archived, so the
-    // stale URL would 404 as a fallback; drop it until the next refresh.
-    setDurableClips((prev) => {
-      if (!(index in prev)) return prev;
-      const next = { ...prev };
-      delete next[index];
-      return next;
     });
     handleClipStateChange(index, { activeLayers: null, serverVideoFile: newFile });
   };
@@ -610,16 +769,29 @@ function App() {
   // its files from R2 into the server's working dir and returns the full state.
   const restoreProject = async (projectJobId) => {
     const data = await apiJson(`/api/projects/${projectJobId}/restore`, { method: 'POST' });
-    flushClipState();
-    setProjectState(data.project_state || null);
-    setNoSource(true);
-    setJobId(data.job_id);
-    setResults(data.result || null);
-    setLogs(['♻️ Project restored from your library.']);
-    setLogTimes([Date.now() / 1000]);
-    setProcessingMedia(null);
-    setQualityGate(null);
-    setStatus('complete');
+    flushClipState(jobId);
+
+    let targetSessionId = activeSessionId;
+    if (activeSession.status !== 'idle' || activeSession.jobId) {
+      const projName = data.project_name || `Project ${(projectJobId || '').slice(0, 8)}`;
+      const newSession = createDefaultSession(projName);
+      targetSessionId = newSession.id;
+      setSessions((prev) => [...prev, newSession]);
+      setActiveSessionId(newSession.id);
+    }
+
+    updateSession(targetSessionId, {
+      projectState: data.project_state || null,
+      noSource: true,
+      jobId: data.job_id,
+      results: data.result || null,
+      logs: ['♻️ Project restored from your library.'],
+      logTimes: [Date.now() / 1000],
+      processingMedia: null,
+      qualityGate: null,
+      status: 'complete',
+      name: data.project_name || `Project ${(projectJobId || '').slice(0, 8)}`,
+    });
     setActiveTab('dashboard');
   };
 
@@ -627,7 +799,7 @@ function App() {
   const handleBulkSubtitles = async (options) => {
     const clips = results?.clips || [];
     const total = clips.length;
-    if (!total) return;
+    if (!total || !jobId) return;
     setBulkSub({ running: true, current: 0, total, errors: 0 });
     let errors = 0;
     for (let i = 0; i < total; i++) {
@@ -696,66 +868,71 @@ function App() {
     }
   };
 
-  // Session Recovery: Restore on mount
+  // Multi-session recovery notice on mount
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(SESSION_KEY);
-      if (!saved) return;
-      const session = JSON.parse(saved);
-      if (Date.now() - session.timestamp > SESSION_MAX_AGE) {
-        localStorage.removeItem(SESSION_KEY);
-        return;
+      const stored = localStorage.getItem(MULTI_SESSIONS_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed?.sessions?.some((s) => s.jobId && s.status !== 'idle')) {
+          setSessionRecovered(true);
+          const t = setTimeout(() => setSessionRecovered(false), 5000);
+          return () => clearTimeout(t);
+        }
       }
-      if (session.jobId && session.status && session.status !== 'idle') {
-        setJobId(session.jobId);
-        setResults(session.results || null);
-        // Restore the source preview. Older sessions (or uploads) saved no
-        // media, so fall back to the backend-served source for this job —
-        // except for reopened projects, whose source was never persisted.
-        if (session.processingMedia) setProcessingMedia(session.processingMedia);
-        else if (!session.noSource) setProcessingMedia({ type: 'server', payload: `/api/source/${session.jobId}` });
-        if (session.noSource) setNoSource(true);
-        if (session.projectState) setProjectState(session.projectState);
-        if (session.activeTab) setActiveTab(session.activeTab);
-        // If was processing, resume polling; if complete/error, just show results
-        setStatus(session.status === 'processing' ? 'processing' : session.status);
-        setSessionRecovered(true);
-        setTimeout(() => setSessionRecovered(false), 5000);
-      }
-    } catch (e) {
-      localStorage.removeItem(SESSION_KEY);
-    }
+    } catch (_) { /* ignore */ }
   }, []);
 
-  // Session Recovery: Save state changes
+  // Multi-session persistence: Save state changes
   useEffect(() => {
-    if (status === 'idle') {
-      localStorage.removeItem(SESSION_KEY);
-      return;
-    }
     try {
-      // URL (YouTube) media serializes as-is. Uploaded 'file' media is a blob
-      // that can't be persisted, so point the recovered preview at the source
-      // served by the backend instead of dropping it.
-      let persistMedia = null;
-      if (processingMedia?.type === 'url') persistMedia = processingMedia;
-      else if (processingMedia && jobId) persistMedia = { type: 'server', payload: `/api/source/${jobId}` };
-      const sessionData = {
-        jobId,
-        status,
-        results,
-        processingMedia: persistMedia,
-        activeTab,
-        noSource,
-        projectState,
-        timestamp: Date.now()
-      };
-      localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
-    } catch (e) {
-      // localStorage full or serialization error - ignore
+      const serializableSessions = sessions.map((s) => {
+        let persistMedia = null;
+        if (s.processingMedia?.type === 'url') persistMedia = s.processingMedia;
+        else if (s.processingMedia && s.jobId) persistMedia = { type: 'server', payload: `/api/source/${s.jobId}` };
+        return {
+          id: s.id,
+          name: s.name,
+          jobId: s.jobId,
+          status: s.status,
+          results: s.results,
+          processingMedia: persistMedia,
+          uploadMode: s.uploadMode,
+          noSource: s.noSource,
+          projectState: s.projectState,
+          timestamp: s.timestamp || Date.now(),
+          logs: Array.isArray(s.logs) ? s.logs.slice(-100) : [],
+          logTimes: Array.isArray(s.logTimes) ? s.logTimes.slice(-100) : [],
+        };
+      });
+      localStorage.setItem(
+        MULTI_SESSIONS_KEY,
+        JSON.stringify({ activeId: activeSessionId, sessions: serializableSessions })
+      );
+
+      // Also mirror the active session in legacy key for backward compatibility
+      if (activeSession.status !== 'idle' && activeSession.jobId) {
+        let persistActiveMedia = null;
+        if (activeSession.processingMedia?.type === 'url') persistActiveMedia = activeSession.processingMedia;
+        else if (activeSession.processingMedia && activeSession.jobId) persistActiveMedia = { type: 'server', payload: `/api/source/${activeSession.jobId}` };
+        localStorage.setItem(
+          SESSION_KEY,
+          JSON.stringify({
+            jobId: activeSession.jobId,
+            status: activeSession.status,
+            results: activeSession.results,
+            processingMedia: persistActiveMedia,
+            activeTab: 'dashboard',
+            noSource: activeSession.noSource,
+            projectState: activeSession.projectState,
+            timestamp: Date.now(),
+          })
+        );
+      }
+    } catch (_) {
+      // localStorage quota or serialization error - ignore safely
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, status, results, activeTab, noSource, projectState]);
+  }, [sessions, activeSessionId, activeSession]);
 
   useEffect(() => {
     // Encrypt Gemini Key too for consistency if desired, but user asked specifically about Social integration not saving well.
@@ -800,7 +977,7 @@ function App() {
   useEffect(() => {
     if (!isManaged || !jobId || !(results?.clips?.length)) { setDurableClips({}); return; }
     let cancelled = false;
-    fetchDurableMap()
+    fetchDurableMap(jobId)
       .then((map) => { if (!cancelled) setDurableClips(map); })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -823,7 +1000,7 @@ function App() {
         if (delay) await new Promise((r) => setTimeout(r, delay));
         if (cancelled) return;
         let map;
-        try { map = await fetchDurableMap(); } catch { return; }
+        try { map = await fetchDurableMap(jobId); } catch { return; }
         if (cancelled) return;
         setDurableClips(map);
         if (Object.keys(map).length >= count) return;
@@ -833,48 +1010,58 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isManaged, jobId, status, results?.clips?.length]);
 
+  // Multi-session background polling: polls all active jobs across all tabs independently
   useEffect(() => {
-    let interval;
-    if ((status === 'processing' || status === 'completed') && jobId) {
-      interval = setInterval(async () => {
+    const activeJobs = sessions.filter(
+      (s) => s.jobId && (s.status === 'processing' || s.status === 'completed')
+    );
+    if (activeJobs.length === 0) return;
+
+    const interval = setInterval(async () => {
+      for (const s of activeJobs) {
         try {
-          const data = await pollJob(jobId);
-          console.log("Job status:", data);
+          const data = await pollJob(s.jobId);
+          console.log(`Job status [${s.name || s.id}]:`, data);
 
-          // Update results if available (real-time)
-          if (data.result) {
-            setResults(data.result);
-          }
+          setSessions((prevSessions) =>
+            prevSessions.map((session) => {
+              if (session.id !== s.id || session.jobId !== s.jobId) return session;
 
-          if (data.partial) setPartialJob(data.partial);
-          setQueueInfo(data.status === 'queued' && data.queue ? data.queue : null);
+              const updates = {};
+              if (data.result) updates.results = data.result;
+              if (data.partial) updates.partialJob = data.partial;
+              updates.queueInfo = data.status === 'queued' && data.queue ? data.queue : null;
 
-          if (data.status === 'completed') {
-            setQueueInfo(null);
-            setStatus('complete');
-            clearInterval(interval);
+              if (data.status === 'completed') {
+                updates.queueInfo = null;
+                updates.status = 'complete';
+              } else if (data.status === 'failed') {
+                updates.status = 'error';
+                const errorMsg =
+                  data.error ||
+                  (data.logs && data.logs.length > 0 ? data.logs[data.logs.length - 1] : 'Process failed');
+                updates.jobError = readableError(errorMsg);
+                updates.logs = [...(session.logs || []), 'Error: ' + errorMsg];
+              } else if (data.logs) {
+                updates.logs = data.logs;
+                updates.logTimes = data.log_times || [];
+              }
+
+              return { ...session, ...updates };
+            })
+          );
+
+          if (data.status === 'completed' || data.status === 'failed') {
             refreshMe();
-          } else if (data.status === 'failed') {
-            setStatus('error');
-            const errorMsg = data.error || (data.logs && data.logs.length > 0 ? data.logs[data.logs.length - 1] : "Process failed");
-            setJobError(readableError(errorMsg));
-            setLogs(prev => [...prev, "Error: " + errorMsg]);
-            clearInterval(interval);
-            refreshMe();
-          } else {
-            // Update logs if available
-            if (data.logs) {
-              setLogs(data.logs);
-              setLogTimes(data.log_times || []);
-            }
           }
         } catch (e) {
-          console.error("Polling error", e);
+          console.error(`Polling error for job ${s.jobId}:`, e);
         }
-      }, 2000);
-    }
+      }
+    }, 2000);
+
     return () => clearInterval(interval);
-  }, [status, jobId, refreshMe]);
+  }, [sessions, refreshMe]);
 
 
   // silent: background auto-fetch — never alert(), just log. Managed users need
@@ -1059,21 +1246,39 @@ function App() {
 
   const handleManualJobStarted = (manualJobId, media) => {
     clearPendingJob();
-    setJobId(manualJobId);
-    setStatus('processing');
-    setJobError('');
-    setLogs(["Starting manual clipping job with custom timestamps..."]);
-    setLogTimes([Date.now() / 1000]);
-    setResults(null);
-    setProcessingMedia(media);
-    setQualityGate(null);
-    setProjectState(null);
-    setNoSource(false);
-    setPartialJob(null);
-    setFirstVideoJob(false);
+    const targetSessionId = activeSessionId;
+    let autoName = null;
+    const currentName = activeSession.name;
+    if (currentName.startsWith('Video ') && /^Video \d+$/.test(currentName)) {
+      if (media?.payload?.name) {
+        autoName = media.payload.name.replace(/\.[^/.]+$/, '').slice(0, 35);
+      } else if (media?.type === 'url' && typeof media.payload === 'string') {
+        try {
+          const urlObj = new URL(media.payload);
+          const v = urlObj.searchParams.get('v');
+          if (v) autoName = `YT: ${v}`;
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    updateSession(targetSessionId, {
+      jobId: manualJobId,
+      status: 'processing',
+      jobError: '',
+      logs: ['Starting manual clipping job with custom timestamps...'],
+      logTimes: [Date.now() / 1000],
+      results: null,
+      processingMedia: media,
+      qualityGate: null,
+      projectState: null,
+      noSource: false,
+      partialJob: null,
+      firstVideoJob: false,
+      ...(autoName ? { name: autoName } : {}),
+    });
   };
 
-  const handleProcess = async (data, forceLowQuality = false) => {
+  const handleProcess = async (data, forceLowQuality = false, overrideSessionId = null) => {
     // Hosted: must be signed in AND on an active plan/trial. Self-host: BYOK keys.
     if (billingEnabled) {
       // The billing gate below is unchanged: signed in, then entitled, then the
@@ -1089,19 +1294,35 @@ function App() {
     }
     // Past every gate, so this request is really running: nothing left to resume.
     clearPendingJob();
-    setStatus('processing');
-    setJobError('');
-    setLogs(["Starting process..."]);
-    setLogTimes([Date.now() / 1000]);
-    setResults(null);
-    // Studio handovers have no local media object; the preview switches to the
-    // backend-served source once the job id is known.
-    setProcessingMedia(data.type === 'thumbnail_session' ? null : data);
-    setQualityGate(null);
-    setProjectState(null);
-    setNoSource(false);
-    setPartialJob(null);
-    setFirstVideoJob(false);
+    const targetSessionId = overrideSessionId || activeSessionId;
+    let autoName = null;
+    const currentName = activeSession.name;
+    if (currentName.startsWith('Video ') && /^Video \d+$/.test(currentName)) {
+      if (data?.type === 'file' && data.payload?.name) {
+        autoName = data.payload.name.replace(/\.[^/.]+$/, '').slice(0, 35);
+      } else if (data?.type === 'url' && typeof data.payload === 'string') {
+        try {
+          const urlObj = new URL(data.payload);
+          const v = urlObj.searchParams.get('v');
+          if (v) autoName = `YT: ${v}`;
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    updateSession(targetSessionId, {
+      status: 'processing',
+      jobError: '',
+      logs: ['Starting process...'],
+      logTimes: [Date.now() / 1000],
+      results: null,
+      processingMedia: data.type === 'thumbnail_session' ? null : data,
+      qualityGate: null,
+      projectState: null,
+      noSource: false,
+      partialJob: null,
+      firstVideoJob: false,
+      ...(autoName ? { name: autoName } : {}),
+    });
 
     try {
       let body;
@@ -1164,29 +1385,34 @@ function App() {
       // Quality gate: the source is below the min resolution — ask before burning
       // 20 min on it. On confirm we resend with force_low_quality.
       if (resData.needs_confirmation) {
-        setStatus('idle');
-        setQualityGate({ info: resData.quality_check, data });
+        updateSession(targetSessionId, {
+          status: 'idle',
+          qualityGate: { info: resData.quality_check, data },
+        });
         return;
       }
 
-      setJobId(resData.job_id);
-      setPartialJob(resData.partial || null);
-      setFirstVideoJob(!!resData.first_video);
+      updateSession(targetSessionId, {
+        jobId: resData.job_id,
+        partialJob: resData.partial || null,
+        firstVideoJob: !!resData.first_video,
+        ...(data.type === 'thumbnail_session'
+          ? { processingMedia: { type: 'server', payload: `/api/source/${resData.job_id}` } }
+          : {}),
+      });
+
       // The server clipped past the balance on its own (no wall): the first
       // video whole, or the first N minutes of a later one.
       if (resData.first_video) track('FirstVideoGrant');
       else if (resData.partial && data.maxMinutes == null) {
         track('AutoPartial', { props: { processed: resData.partial.processed_minutes, total: resData.partial.total_minutes } });
       }
-      if (data.type === 'thumbnail_session') {
-        setProcessingMedia({ type: 'server', payload: `/api/source/${resData.job_id}` });
-      }
       // Minutes are reserved at job start, not at complete.
       refreshMe();
 
     } catch (e) {
       if (e instanceof QuotaError) {
-        setStatus('idle');
+        updateSession(targetSessionId, { status: 'idle' });
         refreshMe();
         // Trial users hit the trial minute cap → prompt them to activate the plan
         // now (unlocks full minutes). Active users → offer a top-up.
@@ -1213,9 +1439,11 @@ function App() {
         return;
       }
       const reason = readableError(e.message);
-      setJobError(reason);
-      setStatus('error');
-      setLogs(l => [...l, `Error starting job: ${reason}`]);
+      updateSession(targetSessionId, {
+        jobError: reason,
+        status: 'error',
+        logs: (prev) => [...(prev || []), `Error starting job: ${reason}`],
+      });
     }
   };
 
@@ -1243,20 +1471,26 @@ function App() {
   const handleReset = () => {
     // Flush any pending edit-state sync before dropping the project: the clips
     // themselves are already archived to R2 as they were edited.
-    flushClipState();
-    setStatus('idle');
-    setJobId(null);
-    setResults(null);
-    setLogs([]);
-    setLogTimes([]);
-    setProcessingMedia(null);
-    setProjectState(null);
-    setNoSource(false);
-    setPartialJob(null);
-    setFirstVideoJob(false);
-    setQueueInfo(null);
-    setJobError('');
-    localStorage.removeItem(SESSION_KEY);
+    flushClipState(jobId);
+    updateActiveSession({
+      status: 'idle',
+      jobId: null,
+      results: null,
+      logs: [],
+      logTimes: [],
+      processingMedia: null,
+      projectState: null,
+      noSource: false,
+      partialJob: null,
+      firstVideoJob: false,
+      queueInfo: null,
+      jobError: '',
+      durableClips: {},
+      editingClip: null,
+      reframingClip: null,
+      syncedTime: 0,
+      isSyncedPlaying: false,
+    });
   };
 
   // --- UI Components ---
@@ -1544,15 +1778,29 @@ function App() {
                 </a>
               </div>
             )}
-            {status !== 'idle' && (
-              <button
-                onClick={handleReset}
-                className="btn-quiet px-3 py-1.5 text-xs shrink-0"
-                aria-label="New Project"
-              >
-                <Plus size={14} />
-                <span className="hidden sm:inline">New Project</span>
-              </button>
+            {activeTab === 'dashboard' && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handleAddSession}
+                  className="btn-quiet px-2.5 py-1.5 text-xs shrink-0 flex items-center gap-1.5"
+                  aria-label="New Session Tab"
+                  title="Add new video session tab"
+                >
+                  <Plus size={14} className="text-brass" />
+                  <span className="hidden sm:inline">New Video</span>
+                </button>
+                {status !== 'idle' && (
+                  <button
+                    onClick={handleReset}
+                    className="btn-ghost px-2 py-1.5 text-xs shrink-0 text-muted hover:text-ink flex items-center gap-1"
+                    aria-label="Reset Video"
+                    title="Reset current video back to idle"
+                  >
+                    <RotateCcw size={13} />
+                    <span className="hidden md:inline">Reset</span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
 
@@ -1652,8 +1900,22 @@ function App() {
         {/* Advanced tools (AI Shorts, AI Agent): BYOK fal.ai + ElevenLabs notice. */}
         {advancedThisTab && <AdvancedBanner needsPlan={needsPlan} onKeys={() => goToTab('settings')} />}
 
+        {/* Multi-Session Tab Bar for Clip Generator */}
+        {activeTab === 'dashboard' && (
+          <SessionTabBar
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            onSelectSession={handleSelectSession}
+            onAddSession={handleAddSession}
+            onCloseSession={handleCloseSession}
+            onRenameSession={handleRenameSession}
+            onDuplicateSession={handleDuplicateSession}
+            onResetSession={handleReset}
+          />
+        )}
+
         {/* Main Workspace */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative flex flex-col">
 
           {/* View: Settings */}
           {activeTab === 'settings' && (
@@ -2061,9 +2323,16 @@ function App() {
               managed={isManaged}
               onCreateClips={(sessionId) => {
                 setActiveTab('dashboard');
+                let targetId = activeSessionId;
+                if (activeSession.status !== 'idle' || activeSession.jobId) {
+                  const newSession = createDefaultSession(`Studio (${(sessionId || '').slice(0, 6)})`);
+                  setSessions((prev) => [...prev, newSession]);
+                  setActiveSessionId(newSession.id);
+                  targetId = newSession.id;
+                }
                 // The Studio source is the user's own upload, published to their
                 // own channel; the handover carries that same attestation.
-                handleProcess({ type: 'thumbnail_session', payload: sessionId, acknowledged: true });
+                handleProcess({ type: 'thumbnail_session', payload: sessionId, acknowledged: true }, false, targetId);
               }}
             />
           )}
@@ -2075,7 +2344,7 @@ function App() {
 
           {/* View: Dashboard (Idle) */}
           {activeTab === 'dashboard' && status === 'idle' && (
-            <div className="h-full overflow-y-auto custom-scrollbar animate-fade">
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar animate-fade">
               <div className="min-h-full flex flex-col items-center justify-center px-4 py-5 sm:p-6">
               {/* On a phone the hero used to fill the fold on its own and push
                   the uploader — the whole point of the screen — below it. The
@@ -2143,7 +2412,7 @@ function App() {
 
           {/* View: Processing / Results (Split View) */}
           {activeTab === 'dashboard' && (status === 'processing' || status === 'complete' || status === 'error') && (
-            <div className="h-full flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-y-hidden custom-scrollbar animate-fade">
+            <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 md:gap-4 p-3 md:p-4 overflow-y-auto md:overflow-y-hidden custom-scrollbar animate-fade">
 
               {/* Left Panel: Preview & Status */}
               <div className={`${status === 'complete' ? 'w-full md:w-[30%] lg:w-[25%]' : 'w-full md:w-[55%] lg:w-[60%]'} md:h-full flex flex-col shrink-0 md:shrink card p-3.5 sm:p-6 md:overflow-y-auto custom-scrollbar transition-all duration-700 ease-in-out`}>
