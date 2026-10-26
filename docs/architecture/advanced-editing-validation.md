@@ -35,3 +35,10 @@ play, approve/save, undo, redo and export with selectable captions. The standalo
 test server must run with Python UTF-8 mode on Windows, as the existing encoder
 logs contain Unicode. Final focused regressions: **87 passed, 2 skipped**. CI status
 is recorded after the feature-branch push.
+
+CI run 40313637675 passed frontend and exposed the existing missing root stdio
+launcher and outdated thumbnail-font path on Linux. Compatibility repairs restore
+the documented launcher, use the actual bundled font, and support Windows anonymous
+stdin pipes. Targeted checks: **18 passed**. Full local suite after repairs:
+**1,250 passed, 26 skipped, 3 baseline Windows failures**, no errors. CI now installs
+FFmpeg so new media tests cannot silently skip for a missing executable.

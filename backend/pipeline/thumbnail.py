@@ -28,7 +28,7 @@ TITLE_MAX_CHARS = 65
 
 THUMB_W, THUMB_H = 1280, 720
 THUMB_MAX_BYTES = 2 * 1024 * 1024  # YouTube's upload limit
-THUMB_FONT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts", "Anton-Regular.ttf")
+THUMB_FONT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "fonts", "Anton-Regular.ttf")
 TEXT_POSITIONS = ("left", "right", "top", "bottom")
 
 

@@ -24,7 +24,10 @@ jobs:
           pip install pytest pillow httpx pydantic sqlalchemy greenlet numpy
           opencv-python-headless python-dotenv google-genai fastapi boto3
           PyJWT email-validator python-multipart -r requirements-longform.txt
-      - name: Run tests
+      - name: Install FFmpeg for media tests
+        # Real-media composition checks must run, not skip for missing FFmpeg.
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Run Python tests
         env:
           PYTHONPATH: .:backend:backend/pipeline:backend/services:backend/utils:backend/api
         run: pytest tests/ -v

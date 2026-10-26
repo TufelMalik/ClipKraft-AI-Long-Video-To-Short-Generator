@@ -80,6 +80,11 @@ def _write(response: dict) -> None:
 
 async def _stdin_lines():
     """Yield stdin lines without blocking the loop (tool calls run for minutes)."""
+    if os.name == 'nt':
+        # Anonymous host pipes are not overlapped IOCP handles on Windows.
+        while line := await asyncio.to_thread(sys.stdin.buffer.readline):
+            yield line
+        return
     loop = asyncio.get_running_loop()
     reader = asyncio.StreamReader()
     await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
