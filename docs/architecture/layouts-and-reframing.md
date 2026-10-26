@@ -10,9 +10,13 @@ Square (1080×1080) and landscape (1920×1080) fit the full source frame with
 padding, without portrait tracking or zoom. Captions use a matching ASS canvas;
 outros are fitted to the selected dimensions before concatenation.
 
-Validation: 24 focused manual tests passed, one dependency-gated test module
-skipped. Actual FFmpeg renders verified square/landscape dimensions, audio,
-duration, decoding and portrait-outro compatibility, with transcription stubbed.
+Validation follow-up: 32 focused manual tests passed; the older camera-framing
+module skipped because `scenedetect` is not installed locally. Independent ratio
+tests rendered all three formats with and without an outro, verifying dimensions,
+audio, duration, full decoding and changed caption pixels. ASR and portrait face
+trajectory are stubbed, but the encoding, speed, composition and caption filters
+are real. Multipart and JSON requests exercise the HTTP route, including omitted
+ratio (vertical default) and invalid ratio rejection before worker launch.
 Frontend lint/build and browser ratio selection passed. Recorded-speech ASR was
 not rerun for this change.
 
