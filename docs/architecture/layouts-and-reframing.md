@@ -1,5 +1,21 @@
 # Layout selection and vertical reframing
 
+## Manual editor output ratio
+
+The existing **Edit Video (Manual)** tab offers 9:16 (Shorts/Reels/TikTok),
+1:1 (feed posts), and 16:9 (landscape/YouTube). The manual process endpoint
+accepts `output_format=vertical|square|horizontal` in multipart or JSON requests.
+Omitting it preserves the existing vertical default and speaker tracking.
+Square (1080×1080) and landscape (1920×1080) fit the full source frame with
+padding, without portrait tracking or zoom. Captions use a matching ASS canvas;
+outros are fitted to the selected dimensions before concatenation.
+
+Validation: 24 focused manual tests passed, one dependency-gated test module
+skipped. Actual FFmpeg renders verified square/landscape dimensions, audio,
+duration, decoding and portrait-outro compatibility, with transcription stubbed.
+Frontend lint/build and browser ratio selection passed. Recorded-speech ASR was
+not rerun for this change.
+
 ## Choosing the layout (`layout_picker.py`, `app.py:layout_env`)
 
 `POST /api/process` accepts `layouts`: a JSON list or comma-separated string of

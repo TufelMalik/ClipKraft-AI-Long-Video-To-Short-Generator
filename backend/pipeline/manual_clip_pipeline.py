@@ -170,7 +170,8 @@ def transcribe_audio_words(video_path: str, log_fn=safe_print):
     full_text = " ".join(text_pieces)
     return words, full_text, language
 
-def build_ass_subtitles(words, hook_text: str, duration_scaled: float, ass_path: str, speed: float = 1.20):
+def build_ass_subtitles(words, hook_text: str, duration_scaled: float, ass_path: str, speed: float = 1.20,
+                        output_format: str = 'vertical'):
     """
     Generates ASS subtitles with:
     - 3.0s Top Hook banner with solid black background box and yellow text
@@ -216,6 +217,8 @@ Style: Hook,Impact,20,&H0000E5FF&,&H0000E5FF&,&H00000000&,&H00000000,1,0,0,0,100
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    width, height = manual_output_size(output_format)
+    header = header.replace('PlayResX: 162', f'PlayResX: {round(288 * width / height)}')
     events = []
 
     # 3.0s Hook Banner with solid black background box and yellow text
@@ -529,9 +532,23 @@ def manual_reframe_filtergraph(first_box, command_path, speed, orig_w, orig_h,
     return ''.join(parts)
 
 
+def manual_output_size(output_format):
+    sizes = {'vertical': (1080, 1920), 'square': (1080, 1080), 'horizontal': (1920, 1080)}
+    if output_format not in sizes:
+        raise ValueError('Unsupported manual output format')
+    return sizes[output_format]
+
+
+def manual_fit_filter(output_format):
+    width, height = manual_output_size(output_format)
+    return (f'scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,'
+            f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1')
+
+
 def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
                         clean_out_video: str, subtitled_out_video: str,
-                        speed: float = 1.20, outro_path: str = DEFAULT_OUTRO, log_fn=safe_print):
+                        speed: float = 1.20, outro_path: str = DEFAULT_OUTRO, log_fn=safe_print,
+                        output_format: str = 'vertical'):
     """
     Renders one manual clip with:
     - Active speaker face detection & smooth cinematic tracking
@@ -546,6 +563,7 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
     Returns:
     - (words, full_text, language)
     """
+    manual_output_size(output_format)
     hook_text = clip_data.get("hook", "")
     start_s = parse_time_str(clip_data.get("start", 0))
     end_s = parse_time_str(clip_data.get("end", 0))
@@ -558,39 +576,45 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
     # 1. Word-level transcription
     words, full_text, language = transcribe_audio_words(raw_segment, log_fn=log_fn)
 
-    # 2. Active speaker detection and dynamic framing
-    log_fn("🔍 Performing active speaker face detection & camera tracking...")
-    res = compute_active_speaker_trajectory(raw_segment, log_fn=log_fn)
-    if len(res) == 8:
-        xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches, split_pair = res
+    if output_format == "vertical":
+        # 2. Active speaker detection and dynamic framing
+        log_fn("🔍 Performing active speaker face detection & camera tracking...")
+        res = compute_active_speaker_trajectory(raw_segment, log_fn=log_fn)
+        if len(res) == 8:
+            xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches, split_pair = res
+        else:
+            xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches = res
+            split_pair = None
+        duration_orig = len(xs) / fps
+        duration_scaled = duration_orig / speed
+
+        # 3. Restrained motion, timed to the final playback speed and speaker cuts.
+        log_fn("🎥 Applying subtle camera motion on longer shots...")
+        zooms = compute_dynamic_motion_zooms(len(xs), fps, speaker_switches, playback_speed=speed)
+        boxes = compute_crop_boxes(xs, zooms, crop_w, crop_h, orig_w, orig_h)
+
+        # 5. sendcmd commands for dynamic w/h/x/y
+        cmd_path = os.path.join(work_dir, f"cmd_{clip_id}.txt")
+        generate_sendcmd_boxes(boxes, fps, cmd_path, speed=speed)
+
+        # 6. Reframe to 9:16 vertical video & 1.20x speedup (clean baseline)
+        rel_cmd = os.path.relpath(cmd_path, REPO_ROOT).replace("\\", "/")
+
+        filtergraph = manual_reframe_filtergraph(
+            boxes[0], rel_cmd, speed, orig_w, orig_h, fps, len(xs),
+            split_pair if clip_data.get("layout", "focus") == "split" else None)
+
     else:
-        xs, fps, orig_w, orig_h, crop_w, crop_h, speaker_switches = res
-        split_pair = None
-    duration_orig = len(xs) / fps
-    duration_scaled = duration_orig / speed
+        duration_scaled = (end_s - start_s) / speed
+        filtergraph = (f"[0:v]setpts=(PTS-STARTPTS)/{speed},"
+                       f"{manual_fit_filter(output_format)}[v];[0:a]atempo={speed}[a]")
 
-    # 3. Restrained motion, timed to the final playback speed and speaker cuts.
-    log_fn("🎥 Applying subtle camera motion on longer shots...")
-    zooms = compute_dynamic_motion_zooms(len(xs), fps, speaker_switches, playback_speed=speed)
-    boxes = compute_crop_boxes(xs, zooms, crop_w, crop_h, orig_w, orig_h)
-
-    # 4. ASS Subtitles (Hook with yellow text + black background box, and karaoke captions)
     ass_path = os.path.join(work_dir, f"subtitles_{clip_id}.ass")
-    build_ass_subtitles(words, hook_text, duration_scaled, ass_path, speed=speed)
-
-    # 5. sendcmd commands for dynamic w/h/x/y
-    cmd_path = os.path.join(work_dir, f"cmd_{clip_id}.txt")
-    generate_sendcmd_boxes(boxes, fps, cmd_path, speed=speed)
-
-    # 6. Reframe to 9:16 vertical video & 1.20x speedup (clean baseline)
+    build_ass_subtitles(words, hook_text, duration_scaled, ass_path, speed=speed,
+                        output_format=output_format)
     reframed_path = os.path.join(work_dir, f"reframed_{clip_id}.mp4")
-    rel_cmd = os.path.relpath(cmd_path, REPO_ROOT).replace("\\", "/")
 
-    filtergraph = manual_reframe_filtergraph(
-        boxes[0], rel_cmd, speed, orig_w, orig_h, fps, len(xs),
-        split_pair if clip_data.get("layout", "focus") == "split" else None)
-
-    log_fn(f"🎬 Rendering vertical 9:16 short at {speed}x speed with active speaker framing...")
+    log_fn(f"🎬 Rendering {output_format} clip at {speed}x speed...")
     reframe_cmd = [
         "ffmpeg", "-y", "-loglevel", "warning",
         "-i", raw_segment,
@@ -606,9 +630,10 @@ def process_single_clip(src_video: str, clip_data: dict, work_dir: str,
     has_outro = outro_path and os.path.exists(outro_path)
     if has_outro:
         log_fn(f"🔗 Appending Outro: {os.path.basename(outro_path)}...")
+        outro_fit = "" if output_format == "vertical" else manual_fit_filter(output_format) + ","
         concat_filter = (
             "[0:v]fps=30,setsar=1[v0];"
-            "[1:v]fps=30,setsar=1[v1];"
+            f"[1:v]{outro_fit}fps=30,setsar=1[v1];"
             "[0:a]aformat=sample_rates=48000:channel_layouts=stereo[a0];"
             "[1:a]aformat=sample_rates=48000:channel_layouts=stereo[a1];"
             "[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]"

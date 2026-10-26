@@ -26,7 +26,7 @@ def safe_print(msg: str):
 
 def _render_manual_clips_job(job_id: str, src_video: str, clips_config: List[Dict[str, Any]],
                          output_dir: str, speed: float = 1.20, outro_path: str = DEFAULT_OUTRO,
-                         jobs_dict: dict = None):
+                         jobs_dict: dict = None, output_format: str = 'vertical'):
     """
     Runs only in the isolated rendering process, on its main thread.
     """
@@ -81,7 +81,8 @@ def _render_manual_clips_job(job_id: str, src_video: str, clips_config: List[Dic
                 subtitled_out_video=subtitled_video_path,
                 speed=speed,
                 outro_path=outro_path,
-                log_fn=log
+                log_fn=log,
+                output_format=output_format,
             )
             if language:
                 main_language = language
@@ -123,6 +124,7 @@ def _render_manual_clips_job(job_id: str, src_video: str, clips_config: List[Dic
                 "original_start": round(start_s, 3),
                 "original_end": round(end_s, 3),
                 "speed": speed,
+                "output_format": output_format,
                 "hook": hook_text,
                 "title": hook_text,
                 "video_title_for_youtube_short": hook_text,
@@ -200,7 +202,7 @@ class _EventJob(dict):
 
 def run_manual_clips_job(job_id: str, src_video: str, clips_config: List[Dict[str, Any]],
                          output_dir: str, speed: float = 1.20, outro_path: str = DEFAULT_OUTRO,
-                         jobs_dict: dict = None):
+                         jobs_dict: dict = None, output_format: str = 'vertical'):
     """Supervise native ML rendering out of process; never import it in the API.
 
     Windows native access violations bypass Python exceptions. Keeping Torch,
@@ -229,7 +231,7 @@ def run_manual_clips_job(job_id: str, src_video: str, clips_config: List[Dict[st
     try:
         request = dict(job_id=job_id, src_video=os.path.abspath(src_video),
             clips_config=clips_config, output_dir=os.path.abspath(output_dir),
-            speed=speed, outro_path=outro_path)
+            speed=speed, outro_path=outro_path, output_format=output_format)
         _atomic_json(request_path, request)
         job["status"] = "processing"
         persist()

@@ -3573,6 +3573,7 @@ async def manual_clip_endpoint(
     timestamps: Optional[str] = Form(None),
     speed: Optional[float] = Form(1.20),
     outro_path: Optional[str] = Form(None),
+    output_format: str = Form('vertical'),
 ):
     from manual_clip_worker import run_manual_clips_job, DEFAULT_OUTRO
 
@@ -3584,6 +3585,10 @@ async def manual_clip_endpoint(
         timestamps = body.get("timestamps")
         speed = float(body.get("speed", 1.20) or 1.20)
         outro_path = body.get("outro_path")
+        output_format = body.get("output_format", "vertical")
+
+    if output_format not in ('vertical', 'square', 'horizontal'):
+        raise HTTPException(status_code=400, detail="output_format must be vertical, square, or horizontal")
 
     # Parse timestamps JSON
     clips_config = []
@@ -3641,7 +3646,8 @@ async def manual_clip_endpoint(
             output_dir=job_output_dir,
             speed=speed,
             outro_path=resolved_outro,
-            jobs_dict=jobs
+            jobs_dict=jobs,
+            output_format=output_format,
         )
 
     threading.Thread(target=_worker, daemon=True).start()

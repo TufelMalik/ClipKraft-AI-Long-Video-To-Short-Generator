@@ -24,6 +24,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
     const [addOutro] = useState(true);
     const [outroPath, setOutroPath] = useState(DEFAULT_OUTRO_PATH);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [outputFormat, setOutputFormat] = useState('vertical');
 
     const fileInputRef = useRef(null);
 
@@ -115,6 +116,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
 
             formData.append('timestamps', JSON.stringify(formattedClips));
             formData.append('speed', String(speed));
+            formData.append('output_format', outputFormat);
             if (addOutro && outroPath.trim()) {
                 formData.append('outro_path', outroPath.trim());
             }
@@ -197,7 +199,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                         Manual Clip &amp; Edit
                     </h2>
                     <p className="text-xs text-muted mt-0.5">
-                        Clip specific viral timestamps with 1.20x speed, smart 9:16 face-tracking, karaoke captions, and outro.
+                        Clip your timestamps with speed controls, your chosen output ratio, karaoke captions, and outro.
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs">
@@ -216,6 +218,23 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                     <span>{error}</span>
                 </div>
             )}
+
+            <fieldset disabled={isSubmitting || isProcessing}>
+                <legend className="eyebrow mb-2">Output format</legend>
+                <div className="grid grid-cols-3 gap-2">
+                    {[
+                        { value: 'vertical', label: '9:16', hint: 'Shorts · Reels · TikTok', w: 18, h: 32 },
+                        { value: 'square', label: '1:1', hint: 'Feed posts', w: 28, h: 28 },
+                        { value: 'horizontal', label: '16:9', hint: 'Keep landscape · YouTube', w: 36, h: 20 },
+                    ].map(f => <label key={f.value} className={`relative cursor-pointer py-3 px-2 rounded-input border flex flex-col items-center gap-2 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brass ${outputFormat === f.value ? 'border-brass text-ink' : 'border-rule2 text-muted'}`}>
+                        <input className="sr-only" type="radio" name="manual-output-format" value={f.value} checked={outputFormat === f.value} onChange={() => setOutputFormat(f.value)} />
+                        <span aria-hidden="true" className="rounded-[3px] border-2" style={{ width: f.w, height: f.h, borderColor: outputFormat === f.value ? 'var(--color-accent)' : 'var(--color-rule-2)' }} />
+                        <span className="font-mono text-sm leading-none">{f.label}</span>
+                        <span className="text-[11px] leading-tight text-center text-muted">{f.hint}</span>
+                    </label>)}
+                </div>
+                <p className="text-xs text-muted mt-2">{outputFormat === 'vertical' ? 'Smart face tracking and camera motion for portrait clips.' : 'Keeps the full source frame, with padding when needed to fit your ratio.'}</p>
+            </fieldset>
 
             {/* Video Input Source */}
             <div className="space-y-3">
@@ -435,7 +454,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                     <div className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-brass" /> 1.20x Speed scaling</div>
                     <div className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-brass" /> Black box &amp; yellow hook</div>
                     <div className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-brass" /> Word karaoke subtitles</div>
-                    <div className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-brass" /> Face tracking + slow zoom</div>
+                    <div className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-brass" /> {outputFormat === 'vertical' ? 'Face tracking + slow zoom' : 'Full-frame fit + padding'}</div>
                 </div>
 
                 {showAdvanced && (
