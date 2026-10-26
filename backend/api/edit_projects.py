@@ -54,7 +54,7 @@ def build_router(host):
             store_instance.prune()
         # OAuth callback uses one-time state rather than a browser header.
         token = os.getenv('LONGFORM_LOCAL_TOKEN')
-        if re.fullmatch(r'/api/edit-exports/[a-f0-9]{32}/(?:video|captions|track)', request.url.path) and request.query_params.get('ticket'):
+        if re.fullmatch(r'/api/(?:edit-exports/[a-f0-9]{32}/(?:video|captions|track)|edit-assets/[a-f0-9]{32}/(?:media|thumbnail))', request.url.path) and request.query_params.get('ticket'):
             try:
                 ticket = store().get('media_ticket', request.query_params['ticket'])
                 if ticket['expires'] > time.time() and ticket['path'] == request.url.path:
@@ -180,9 +180,13 @@ def build_router(host):
     @router.get('/api/edit-projects/capabilities')
     async def capabilities(request: Request):
         token = os.getenv('LONGFORM_LOCAL_TOKEN', '')
+        from composition_capabilities import installed
+        support = await asyncio.to_thread(installed)
         return {'enabled': flag('LONGFORM_EDITING_ENABLED'), 'cold_open': flag('COLD_OPEN_ENABLED'),
                 'smart_cuts': flag('SMART_CUTS_ENABLED'), 'retention': flag('YOUTUBE_RETENTION_ENABLED'),
                 'export': flag('LONGFORM_EXPORT_ENABLED'), 'local_only': True,
+                **support, 'audio': flag('LONGFORM_AUDIO_ENABLED') and support['audio_supported'], 'visuals': False, 'broll': False,
+                'asset_upload_max_bytes': 256 * 1024 * 1024,
                 'requires_token': bool(token), 'authenticated': not token or hmac.compare_digest(request.headers.get('x-longform-token', ''), token)}
 
     @router.get('/api/edit-projects')
@@ -289,6 +293,14 @@ def build_router(host):
         enabled()
         body = await request.json()
         def change(p):
+            if 'segments' in body:
+                # Lineage is server-owned; clients cannot claim another occurrence.
+                old = {s['id']: s for s in p['segments']}
+                for seg in body['segments'] if isinstance(body['segments'], list) else []:
+                    if isinstance(seg, dict):
+                        seg.pop('lineage', None)
+                        if seg.get('id') in old and 'lineage' in old[seg['id']]:
+                            seg['lineage'] = old[seg['id']]['lineage']
             for key in ('segments', 'protected_ranges'):
                 if key in body:
                     p[key] = body[key]
@@ -304,9 +316,18 @@ def build_router(host):
         body = await request.json()
         previous = read('history', f"{id}:{body.get('target_revision')}")
         try:
-            return store().mutate(id, body.get('expected_revision'), lambda _: previous)
+            import edit_assets
+            await asyncio.to_thread(edit_assets.dependencies, store(), previous, False)
+            return store().mutate(id, body.get('expected_revision'), lambda _: previous, restore=True)
         except EditError as e:
             failure(e)
+
+    from edit_composition import register
+    register(router, store, enabled, read, revision, failure, submit, verify_source, host)
+
+    async def render_project(p, path, id, op_id):
+        kwargs = {'asset_store': store()} if 'composition' in p else {}
+        return await longform_render.render(p, path, read('transcript', id), Path(host.OUTPUT_DIR) / p['job_id'], op_id, **kwargs)
 
     @router.post('/api/edit-projects/{id}/{feature}/analyze')
     async def analyze(id: str, feature: str, request: Request):
@@ -341,8 +362,10 @@ def build_router(host):
         async def work(op_id):
             path = await verify_source(p)
             lease(p)
-            manifest = await longform_render.render(proposed, path, read('transcript', id), Path(host.OUTPUT_DIR) / p['job_id'], op_id)
+            manifest = await render_project(proposed, path, id, op_id)
             manifest.update(preview=True, suggestion_ids=body.get('suggestion_ids', []), kind=kind)
+            if 'composition' in proposed:
+                store().put('composition_draft', op_id, {'project': proposed})
             store().put('export', op_id, manifest)
             return manifest
         return await submit(id, 'preview', work)
@@ -368,6 +391,12 @@ def build_router(host):
                 raise EditError('analysis_stale')
             proposed['segments'] = [{key: segment[key] for key in ('id', 'role', 'source_start_ms', 'source_end_ms')}
                                     for segment in preview['time_map']]
+            if 'composition' in p:
+                proposed = store().get('composition_draft', preview['export_id'])['project']
+                import composition, edit_assets
+                deps = await asyncio.to_thread(edit_assets.dependencies, store(), proposed)
+                if composition.identity(proposed, deps) != preview.get('composition_hash'):
+                    raise EditError('analysis_stale')
             await verify_source(p)
             return store().mutate(id, p['revision'], lambda _: proposed)
         except EditError as e:
@@ -381,7 +410,7 @@ def build_router(host):
         async def work(op_id):
             path = await verify_source(p)
             lease(p)
-            manifest = await longform_render.render(p, path, read('transcript', id), Path(host.OUTPUT_DIR) / p['job_id'], op_id)
+            manifest = await render_project(p, path, id, op_id)
             store().put('export', op_id, manifest)
             return manifest
         return await submit(id, 'export', work)

@@ -108,7 +108,7 @@ class Store:
             db.execute('DELETE FROM records WHERE kind=? AND id=?', (kind, id))
             return json.loads(row[0])
 
-    def mutate(self, id, revision, change):
+    def mutate(self, id, revision, change, restore=False):
         if type(revision) is not int:
             raise EditError('revision_conflict')
         with self.db() as db:
@@ -118,7 +118,11 @@ class Store:
             p = json.loads(row[0])
             if p['revision'] != revision:
                 raise EditError('revision_conflict')
-            updated = validate(change(json.loads(row[0])))
+            from composition import reconcile
+            updated = change(json.loads(row[0]))
+            if not restore:
+                updated = reconcile(p, updated)
+            updated = validate(updated)
             updated['revision'] = revision + 1
             self._put(db, 'history', f'{id}:{revision}', p)
             self._put(db, 'project', id, updated)

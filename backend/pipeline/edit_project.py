@@ -57,7 +57,8 @@ def validate(project):
         if type(r.get('start_ms')) is not int or type(r.get('end_ms')) is not int or not 0 <= r['start_ms'] < r['end_ms'] <= duration:
             raise EditError('invalid_protected_range')
     project['duration_ms'] = total
-    return project
+    from composition import validate as validate_composition
+    return validate_composition(project)
 
 
 def new_project(job_id, duration_ms, fingerprint, transcript):
@@ -102,13 +103,14 @@ def apply_suggestions(project, suggestions, kind):
             cursor, end = seg['source_start_ms'], seg['source_end_ms']
             for a, b in sorted(cuts.get(seg['id'], [])):
                 if a > cursor:
-                    result.append({**seg, 'id': uid(), 'source_start_ms': cursor, 'source_end_ms': a})
+                    result.append({**seg, 'id': uid(), 'lineage': [*seg.get('lineage', []), seg['id']], 'source_start_ms': cursor, 'source_end_ms': a})
                 cursor = max(cursor, b)
             if cursor < end:
-                result.append({**seg, 'id': uid() if seg['id'] in cuts else seg['id'], 'source_start_ms': cursor})
+                result.append({**seg, **({'lineage': [*seg.get('lineage', []), seg['id']]} if seg['id'] in cuts else {}), 'id': uid() if seg['id'] in cuts else seg['id'], 'source_start_ms': cursor})
         p['segments'] = result
     p['applied_suggestion_ids'] += [s['id'] for s in suggestions]
-    return validate(p)
+    from composition import reconcile
+    return validate(reconcile(project, p))
 
 
 def sentences(transcript):

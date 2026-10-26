@@ -11,7 +11,7 @@ from ffmpeg_utils import video_encode_args, audio_encode_args, QUALITY_FAST, MET
 from timeline_map import timeline, remap_transcript
 
 
-async def command(args, timeout=1800, workdir=None, max_bytes=None):
+async def command(args, timeout=1800, workdir=None, max_bytes=None, stderr_output=False):
     # ASR and FFmpeg children inherit no application, storage or Google credentials.
     env = dict(os.environ)
     for name in list(env):
@@ -37,7 +37,7 @@ async def command(args, timeout=1800, workdir=None, max_bytes=None):
         stdout, stderr = await reader
         if process.returncode:
             raise EditError('media_operation_failed')
-        return stdout
+        return stderr if stderr_output else stdout
     finally:
         watcher.cancel()
         if process.returncode is None:
@@ -62,7 +62,17 @@ def fingerprint(path):
     return h.hexdigest()
 
 
-async def render(project, source, transcript, directory, export_id):
+async def render(project, source, transcript, directory, export_id, asset_store=None):
+    import composition
+    composition.validate(project)
+    composed = composition.active(project)
+    dependencies = []
+    if 'composition' in project:
+        from edit_assets import dependencies as asset_dependencies
+        if any(x['enabled'] and x['needs_review'] for x in composition.layers(project)):
+            raise EditError('unresolved_layers_disable_or_reanchor')
+        if asset_store:
+            dependencies = await asyncio.to_thread(asset_dependencies, asset_store, project)
     started = time.monotonic()
     directory = Path(directory)
     work = directory / ('temp_longform_' + export_id)
@@ -78,21 +88,29 @@ async def render(project, source, transcript, directory, export_id):
         deadline = int(os.getenv('LONGFORM_RENDER_TIMEOUT_SECONDS', '1800'))
         parts = []
         for i, seg in enumerate(project['segments']):
-            part = work / f'part_{i}.mp4'
+            part = work / (f'part_{i}.mkv' if composed else f'part_{i}.mp4')
             await command(['ffmpeg', '-v', 'error', '-y', '-ss', str(seg['source_start_ms'] / 1000),
                 '-protocol_whitelist', 'file,pipe', '-i', source, '-t', str((seg['source_end_ms'] - seg['source_start_ms']) / 1000),
                 '-map', '0:v:0', '-map', '0:a:0?', *video_encode_args(QUALITY_FAST), '-pix_fmt', 'yuv420p',
-                *audio_encode_args(), *METADATA_SCRUB, '-movflags', '+faststart', part],
+                *(['-c:a', 'pcm_s16le'] if composed else audio_encode_args()), *METADATA_SCRUB,
+                *([] if composed else ['-movflags', '+faststart']), part],
                 max(1, deadline - (time.monotonic() - started)), work, disk_cap)
             parts.append(part)
             if sum(p.stat().st_size for p in parts) > disk_cap:
                 raise EditError('storage_limit')
         listing = work / 'concat.txt'
         listing.write_text(''.join(f"file '{p.name}'\n" for p in parts), encoding='utf-8')
-        output = work / 'joined.mp4'
+        output = work / ('joined.mkv' if composed else 'joined.mp4')
         await command(['ffmpeg', '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', listing,
-            '-c', 'copy', *METADATA_SCRUB, '-movflags', '+faststart', output],
+            '-c', 'copy', *METADATA_SCRUB, *([] if composed else ['-movflags', '+faststart']), output],
             max(1, deadline - (time.monotonic() - started)), work, disk_cap)
+        measured = None
+        if composed:
+            from longform_compositor import compose
+            final = work / 'composed.mp4'
+            measured = await compose(project, output, final, work, asset_store, command, probe,
+                lambda: max(1, deadline - (time.monotonic() - started)), disk_cap)
+            output = final
         info = await probe(output)
         actual = round(float(info['format']['duration']) * 1000)
         expected = entries[-1]['output_end_ms']
@@ -112,7 +130,9 @@ async def render(project, source, transcript, directory, export_id):
         return {'export_id': export_id, 'project_id': project['project_id'], 'revision': project['revision'],
                 'duration_ms': expected, 'media_duration_ms': actual, 'edl_hash': digest(project['segments']),
                 'time_map': entries, 'fingerprint': checksum, 'filename': target.name,
-                'captions_filename': srt_target.name, 'created_at': time.time()}
+                'captions_filename': srt_target.name, 'created_at': time.time(),
+                **({'composition_hash': composition.identity(project, dependencies), 'dependencies': dependencies,
+                    'renderer_version': composition.RENDERER_VERSION, 'audio_measurement': measured} if 'composition' in project else {})}
     except BaseException:
         target.unlink(missing_ok=True)
         target.with_suffix('.srt').unlink(missing_ok=True)

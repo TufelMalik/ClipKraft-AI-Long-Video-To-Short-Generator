@@ -134,10 +134,10 @@ def mark_ai_generated(path, detail=""):
         return False
 
 
-def audio_encode_args():
+def audio_encode_args(normalize=True):
     """AAC encode args for a delivered clip, with loudness normalisation."""
     args = ["-c:a", "aac"]
-    if os.environ.get("AUDIO_NORMALIZE", "1").strip() != "0":
+    if normalize and os.environ.get("AUDIO_NORMALIZE", "1").strip() != "0":
         args = ["-af", LOUDNORM_FILTER] + args
     return args
 

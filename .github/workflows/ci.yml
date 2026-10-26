@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, codex/advanced-editing-plan]
   pull_request:
 
 jobs:
