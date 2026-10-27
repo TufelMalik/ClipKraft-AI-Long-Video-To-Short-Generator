@@ -2,7 +2,7 @@
 
 The existing local long-form setup and loopback/token guard still apply. Enable
 `LONGFORM_EDITING_ENABLED`, `LONGFORM_EXPORT_ENABLED`, and `LONGFORM_AUDIO_ENABLED`
-to use Audio in **Edit full video → Audio, visuals and local assets**. Flags default
+to use Audio in **Edit full video → Edit your video**. Flags default
 off. Restart the backend after changing configuration. No cloud support is added.
 
 FFmpeg/ffprobe must provide `afftdn`, `sidechaincompress`, `amix`, `afade`, `aloop`,
@@ -52,7 +52,7 @@ not erase compositions or silently omit saved layers during rendering.
 
 Open the existing OpenShorts app and choose **Edit full video** in its header.
 The editor opens in the same page. Inside a project, expand **Audio, visuals and
-local assets** and select Audio storytelling, Visual explanations or Local media.
+local assets** and select Audio, Text & graphics, B-roll or My media.
 Only enabled capabilities are shown; the existing feature defaults are unchanged.
 There is no separate production site or new route for these controls.
 
@@ -91,14 +91,14 @@ The feature uses the existing **Edit full video** option in the OpenShorts page.
 Audio and explanation features are independently gated. FFmpeg must provide
 overlay, scale, pad, crop, fps and tpad; capabilities report actual support.
 
-In **Local media**, upload an image/video and add tags, a description of its
+In **My media**, upload an image/video and add tags, a description of its
 visible content, language, source label and usage notes. Inspect the ticketed
 media before using it. Unknown usage rights remain unspecified. Assets stay in
 the existing private library; referenced drafts/history/exports prevent deletion.
 Metadata edits use optimistic revision checks. Updating media content requires
 a new upload, preserving existing immutable asset IDs and export dependencies.
 
-In **Context-aware B-roll**, choose the source occurrence and one to four transcript
+In **B-roll**, choose the source occurrence and one to four transcript
 sentences, then suggest matches. Search uses deterministic token overlap over
 tags/descriptions/source labels, with a small explicit Hindi/Hinglish alias list
 in `broll_search.py`; additional domain vocabulary belongs in user tags. No model

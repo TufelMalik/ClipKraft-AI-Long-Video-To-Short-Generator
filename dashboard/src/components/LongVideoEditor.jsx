@@ -60,6 +60,10 @@ export default function LongVideoEditor({ jobId }) {
     else dialog.current?.close();
   }, [open]);
 
+  useEffect(() => {
+    if (media) player.current?.scrollIntoView({ block: 'center', behavior: 'auto' });
+  }, [media]);
+
   async function action(fn) {
     setError(''); setBusy(true);
     try { await fn(); } catch (e) { setError(e.message); }
@@ -131,8 +135,7 @@ export default function LongVideoEditor({ jobId }) {
   return <>
     <button className="btn-quiet px-2 sm:px-3 py-2 text-xs" aria-haspopup="dialog" onClick={begin}>Edit full video</button>
     <dialog ref={dialog} aria-labelledby="long-video-editor-title" onCancel={() => setOpen(false)} className="long-video-editor">
-      <div className="flex justify-between items-start gap-4 mb-4"><div><p className="eyebrow mb-2">OpenShorts / Full video</p><h2 id="long-video-editor-title" className="text-xl font-semibold">Shape your story</h2></div><button className="btn-ghost" onClick={() => setOpen(false)} aria-label="Close long video editor">Close</button></div>
-      <p className="text-sm text-gray-300 mb-4">Source framing and normal speed. AI suggestions require a preview and your approval.</p>
+      <div className="flex justify-between items-start gap-4 mb-4"><div><h2 id="long-video-editor-title" className="text-xl font-semibold">Video editor</h2><p className="text-sm text-muted mt-1">Edit, watch a preview, then save your changes.</p></div><button className="btn-ghost" onClick={() => setOpen(false)} aria-label="Close long video editor">Close</button></div>
       {locked && <form onSubmit={e => { e.preventDefault(); begin(); }} className="flex gap-2"><label>Local editor token <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} className="bg-black border p-2" /></label><button className="btn-primary">Unlock</button></form>}
       {error && <p role="alert" className="my-3 text-amber-300">{error.replaceAll('_', ' ')}</p>}
       {!locked && <>
@@ -141,19 +144,18 @@ export default function LongVideoEditor({ jobId }) {
           <label className="btn-ghost cursor-pointer">Upload full video<input className="sr-only" type="file" accept="video/*" disabled={busy} onChange={e => { const file = e.target.files?.[0]; if (!file) return; action(async () => { const data = new FormData(); data.append('file', file); const p = await wait(await request('/api/edit-sources', data)); setHistory([]); setRedo([]); await load(p.project_id); setProjects(await request('/api/edit-projects', undefined, 'GET')); }); e.target.value = ''; }} /></label>
           <label>Open saved project <select className="bg-black p-2 border border-gray-600 ml-2" value={project?.project_id || ''} disabled={busy} onChange={e => action(async () => { setHistory([]); setRedo([]); setMedia(null); setReport(null); await load(e.target.value); })}><option value="" disabled>Select project</option>{projects.map(p => <option key={p.project_id} value={p.project_id}>{p.job_id} · revision {p.revision}</option>)}</select></label>
         </div>
-        {operation && <p role="status" className="text-sm my-2">{operation.kind || 'Operation'}: {operation.state} {busy && <button className="btn-ghost" onClick={() => request(`/api/edit-operations/${operation.id}/cancel`, {}).catch(e => setError(e.message))}>Cancel operation</button>}</p>}
+        {operation && busy && <p role="status" className="text-sm my-2">{operation.state === 'queued' ? 'Waiting to start…' : 'Working on your video…'} <button className="btn-ghost" onClick={() => request(`/api/edit-operations/${operation.id}/cancel`, {}).catch(e => setError(e.message))}>Cancel</button></p>}
         {project && <>
-          <p className="text-sm text-gray-300">Revision {project.revision} · {stamp(project.duration_ms)} · {project.source_retention}</p>
-          {project.source_lease_expires_at && <p className="text-xs text-gray-400">Source lease expires {new Date(project.source_lease_expires_at * 1000).toLocaleString()}.</p>}
+          <div className="flex flex-wrap justify-between gap-2 text-sm text-muted"><span>{stamp(project.duration_ms)} video · Saved version {project.revision}</span><details><summary className="cursor-pointer">Storage details</summary><p className="max-w-sm py-2 text-xs">{project.source_retention}{project.source_lease_expires_at && <> Source lease expires {new Date(project.source_lease_expires_at * 1000).toLocaleString()}.</>}</p></details></div>
           {!project.source_available && <p role="alert" className="text-amber-300">Source expired. Restore or re-upload before analysis or rendering.</p>}
-          <div className="flex flex-wrap gap-2 my-4">
+          <div className="editor-main-actions flex flex-wrap gap-2 my-4">
             <button className="btn-ghost" disabled={busy || !history.length} onClick={() => action(() => restore('undo'))}>Undo</button>
             <button className="btn-ghost" disabled={busy || !redo.length} onClick={() => action(() => restore('redo'))}>Redo</button>
             {caps.cold_open && <button className="btn-primary" disabled={busy || !project.source_available} onClick={() => action(() => analyze('cold_open'))}>Find opening moments</button>}
             {caps.smart_cuts && <button className="btn-primary" disabled={busy || !project.source_available} onClick={() => action(() => analyze('smart_cuts'))}>Analyze story cuts</button>}
-            <button className="btn-ghost" disabled={busy || !project.segments.some(s => s.role === 'cold_open')} onClick={() => action(() => save({ segments: project.segments.filter(s => s.role !== 'cold_open') }))}>Remove opening</button>
-            <button className="btn-ghost" disabled={busy || !project.source_available} onClick={() => action(async () => { setPreview(null); await showMedia(await wait(await request(`/api/edit-projects/${project.project_id}/preview`, { expected_revision: project.revision }))); })}>Preview current edit</button>
-            {caps.export && <button className="btn-primary" disabled={busy || !project.source_available} onClick={() => action(async () => { const e = await wait(await request(`/api/edit-projects/${project.project_id}/exports`, { expected_revision: project.revision })); await showMedia(e); await load(project.project_id); })}>Export video</button>}
+            {project.segments.some(s => s.role === 'cold_open') && <button className="btn-ghost" disabled={busy} onClick={() => action(() => save({ segments: project.segments.filter(s => s.role !== 'cold_open') }))}>Remove opening</button>}
+            <button className="btn-ghost" disabled={busy || !project.source_available} onClick={() => action(async () => { setPreview(null); await showMedia(await wait(await request(`/api/edit-projects/${project.project_id}/preview`, { expected_revision: project.revision }))); })}>Preview saved video</button>
+            {caps.export && <button className="btn-primary" disabled={busy || !project.source_available} onClick={() => action(async () => { const e = await wait(await request(`/api/edit-projects/${project.project_id}/exports`, { expected_revision: project.revision })); await showMedia(e); await load(project.project_id); })}>Export saved video</button>}
           </div>
           {media && <section className="my-4"><p>{media.preview ? 'Preview' : 'Export'} · revision {media.revision} {report?.revision !== undefined && media.revision !== project.revision ? '· Historical timeline' : ''}</p><video key={media.export_id + media.seek} ref={player} className="w-full max-h-[45vh] bg-black" controls preload="metadata" onLoadedMetadata={() => { if (player.current) player.current.currentTime = media.seek; }} onPlay={() => setWatched(true)}><source src={media.video} type="video/mp4" /><track src={media.track} kind="captions" srcLang="en" label="Source captions" default /></video><div className="flex gap-4 my-2"><a className="underline" href={media.video} download>Download video</a><a className="underline" href={media.captions} download>Download captions (SRT)</a></div></section>}
           {(caps.audio || caps.visuals || caps.broll || project.composition) && <CompositionPanel key={project.project_id + ':' + project.revision} project={project} caps={caps} request={request} wait={wait} action={action} busy={busy} showMedia={showMedia} watched={watched} mediaId={media?.export_id} applied={async () => { setHistory([...history, project.revision]); setRedo([]); setMedia(null); await load(project.project_id); }} />}

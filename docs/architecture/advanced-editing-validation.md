@@ -127,3 +127,17 @@ verification and the retained result use the actual `/#app` page. CI runs on
 every feature-branch push; final run status is linked in the delivery response
 and available in the repository's GitHub Actions history for
 `codex/advanced-editing-plan`.
+
+## UI clarity follow-up
+
+Simplified tool labels to Audio, Text & graphics, B-roll and My media. The editor
+opens its tools immediately, groups optional controls under advanced settings,
+and keeps Preview/Save/Reset controls visible. Preview scrolls into view when
+ready; saving remains disabled until that exact preview plays. Saved-video
+preview/export actions are explicitly distinguished from unsaved draft changes.
+The supplied Shams Group transparent logo is used in the main app header.
+
+Browser verification covered 390px and 1280px layouts, loaded header image,
+advanced-setting visibility, draft editing, preview playback unlocking Save,
+and successful save to synthetic project revision 8. Lint/build passed. Full
+suite: **1,291 passed, 26 skipped, 3 unchanged baseline Windows failures**.
