@@ -135,7 +135,8 @@ opens its tools immediately, groups optional controls under advanced settings,
 and keeps Preview/Save/Reset controls visible. Preview scrolls into view when
 ready; saving remains disabled until that exact preview plays. Saved-video
 preview/export actions are explicitly distinguished from unsaved draft changes.
-The supplied Shams Group transparent logo is used in the main app header.
+The Shams Group header logo change was subsequently rolled back at the user's
+request; the original OpenShorts branding is restored. UI simplification remains.
 
 Browser verification covered 390px and 1280px layouts, loaded header image,
 advanced-setting visibility, draft editing, preview playback unlocking Save,

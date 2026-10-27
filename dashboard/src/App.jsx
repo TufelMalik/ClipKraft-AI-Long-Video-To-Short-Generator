@@ -1747,7 +1747,6 @@ function App() {
             <span data-tutorial="nav-clips" className="md:hidden font-display lowercase text-base text-ink truncate">
               {activeNav?.label || 'openshorts'}
             </span>
-            <img src="/shams-group-logo.png" alt="Shams Group" className="h-9 w-9 object-contain shrink-0" />
 
             {/* Desktop: open sidebar when closed */}
             {!sidebarOpen && (
@@ -1761,6 +1760,9 @@ function App() {
                   <PanelLeftOpen size={18} />
                 </button>
                 <a href="#landing" className="flex items-center gap-2 pl-1 group" title="go to landing page">
+                  <div className="w-7 h-7 bg-paper3 rounded-input flex items-center justify-center shrink-0 overflow-hidden border border-rule group-hover:border-ink/30 transition-colors">
+                    <img src="/logo-openshorts.png" alt="Logo" className="w-full h-full object-cover" />
+                  </div>
                   <span className="font-display lowercase text-base text-ink group-hover:text-brass transition-colors">openshorts</span>
                 </a>
               </div>
