@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from edit_project import EditError, digest
 from timeline_map import timeline
 
-RENDERER_VERSION = 'composition-1'
+RENDERER_VERSION = 'composition-2'
 
 
 class Model(BaseModel):
@@ -106,7 +106,27 @@ class Callout(VisualBase):
     box: Box
 
 
-Visual = Annotated[KeyPoint | Comparison | Process | Callout, Field(discriminator='kind')]
+class Broll(Model):
+    id: str = Field(min_length=1, max_length=100)
+    kind: Literal['broll']
+    anchor: OccurrenceAnchor
+    asset_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    asset_version: int = Field(ge=1)
+    asset_in_ms: int = Field(default=0, ge=0)
+    mode: Literal['cover', 'inset'] = 'cover'
+    fit: Literal['contain', 'crop'] = 'contain'
+    position: Literal['upper_left', 'upper_right'] = 'upper_right'
+    crop_x: float = Field(default=.5, ge=0, le=1, allow_inf_nan=False)
+    crop_y: float = Field(default=.5, ge=0, le=1, allow_inf_nan=False)
+    loop: bool = False
+    freeze: bool = False
+    enabled: bool = True
+    needs_review: bool = False
+    sentence_ids: list[str] = Field(default_factory=list, max_length=4)
+    proposal_id: str | None = None
+
+
+Visual = Annotated[KeyPoint | Comparison | Process | Callout | Broll, Field(discriminator='kind')]
 
 
 class Composition(Model):
@@ -151,7 +171,9 @@ def validate(project):
         project['composition'] = Composition.model_validate(project['composition']).model_dump()
     except (ValidationError, KeyError) as e:
         raise EditError('invalid_composition') from e
-    seen = set()
+    seen, covers = set(), []
+    if sum(x['kind'] == 'broll' and x['enabled'] for x in layers(project)) > 4:
+        raise EditError('maximum_four_enabled_broll_layers')
     for layer in layers(project):
         if layer['id'] in seen:
             raise EditError('duplicate_layer_id')
@@ -163,6 +185,13 @@ def validate(project):
         if layer['needs_review']:
             continue
         a, b = resolve(project, layer['anchor'])
+        if layer['kind'] == 'broll':
+            if layer['loop'] and layer['freeze']:
+                raise EditError('choose_loop_or_freeze')
+            if layer['enabled'] and layer['mode'] == 'cover':
+                if any(a < y and b > x for x, y in covers):
+                    raise EditError(f'overlapping_broll_covers:{a}-{b}')
+                covers.append((a, b))
         if layer.get('fade_in_ms', 0) + layer.get('fade_out_ms', 0) > b - a:
             raise EditError('fades_exceed_track')
         if layer.get('transition_ms', 0) * 2 > b - a:

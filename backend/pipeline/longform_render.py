@@ -93,21 +93,21 @@ async def render(project, source, transcript, directory, export_id, asset_store=
         deadline = int(os.getenv('LONGFORM_RENDER_TIMEOUT_SECONDS', '1800'))
         parts = []
         for i, seg in enumerate(project['segments']):
-            part = work / (f'part_{i}.mkv' if composed else f'part_{i}.mp4')
+            part = work / (f'part_{i}.mkv' if mix_audio else f'part_{i}.mp4')
             await command(['ffmpeg', '-v', 'error', '-y', '-ss', str(seg['source_start_ms'] / 1000),
                 '-protocol_whitelist', 'file,pipe', '-i', source, '-t', str((seg['source_end_ms'] - seg['source_start_ms']) / 1000),
                 '-map', '0:v:0', '-map', '0:a:0?', *video_encode_args(QUALITY_FAST), '-pix_fmt', 'yuv420p',
                 *(['-c:a', 'pcm_s16le'] if mix_audio else audio_encode_args()), *METADATA_SCRUB,
-                *([] if composed else ['-movflags', '+faststart']), part],
+                *([] if mix_audio else ['-movflags', '+faststart']), part],
                 max(1, deadline - (time.monotonic() - started)), work, disk_cap)
             parts.append(part)
             if sum(p.stat().st_size for p in parts) > disk_cap:
                 raise EditError('storage_limit')
         listing = work / 'concat.txt'
         listing.write_text(''.join(f"file '{p.name}'\n" for p in parts), encoding='utf-8')
-        output = work / ('joined.mkv' if composed else 'joined.mp4')
+        output = work / ('joined.mkv' if mix_audio else 'joined.mp4')
         await command(['ffmpeg', '-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', listing,
-            '-c', 'copy', *METADATA_SCRUB, *([] if composed else ['-movflags', '+faststart']), output],
+            '-c', 'copy', *METADATA_SCRUB, *([] if mix_audio else ['-movflags', '+faststart']), output],
             max(1, deadline - (time.monotonic() - started)), work, disk_cap)
         measured = None
         if composed:

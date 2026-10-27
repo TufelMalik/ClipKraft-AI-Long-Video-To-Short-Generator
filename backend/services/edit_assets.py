@@ -144,11 +144,17 @@ def dependencies(store, project, verify=True):
             raise EditError('asset_checksum_changed:' + asset['id'])
         if layer['kind'] in ('music', 'sfx') and asset['type'] != 'audio':
             raise EditError('audio_asset_required')
+        if layer['kind'] == 'broll' and asset['type'] not in ('video', 'image'):
+            raise EditError('broll_video_or_image_required')
+        if asset['type'] == 'image' and layer.get('asset_in_ms', 0) != 0:
+            raise EditError('still_image_has_no_inpoint')
         if asset['type'] != 'image':
             remaining = asset['duration_ms'] - layer['asset_in_ms']
             if layer.get('loop') and remaining > 60000:
                 raise EditError('loop_tail_limit_60_seconds')
-            if remaining <= 0 or (not layer.get('loop') and remaining < b - a):
+            if remaining <= 0 or (not layer.get('loop') and not layer.get('freeze') and remaining < b - a):
                 raise EditError('asset_too_short_trim_or_loop:' + layer['id'])
         result[asset['id']] = {'id': asset['id'], 'version': asset['version'], 'checksum': asset['checksum']}
+        if layer['kind'] == 'broll':
+            result[asset['id']]['metadata_version'] = asset['metadata_version']
     return sorted(result.values(), key=lambda x: x['id'])

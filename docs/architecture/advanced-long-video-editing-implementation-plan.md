@@ -1,6 +1,7 @@
 # Advanced Long-Video Editing — Next Three Features
 
-Status: implementation plan only.
+Status: all three features implemented behind independent opt-in flags.
+See `advanced-editing-validation.md` for delivery evidence and remaining verification limits.
 
 Prepared: 25 October 2026.
 

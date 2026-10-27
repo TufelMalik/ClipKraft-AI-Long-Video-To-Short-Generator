@@ -17,18 +17,42 @@ def register(router, store, enabled, read, revision, failure, submit, verify_sou
         a, b = before.get('composition', composition.empty()), after['composition']
         if any(a[k] != b[k] for k in ('voice', 'audio_tracks', 'loudness_lufs')):
             enabled('LONGFORM_AUDIO_ENABLED')
-        if a['visual_layers'] != b['visual_layers']:
+        if [x for x in a['visual_layers'] if x['kind'] != 'broll'] != [x for x in b['visual_layers'] if x['kind'] != 'broll']:
             enabled('LONGFORM_VISUALS_ENABLED')
+        if [x for x in a['visual_layers'] if x['kind'] == 'broll'] != [x for x in b['visual_layers'] if x['kind'] == 'broll']:
+            enabled('LONGFORM_BROLL_ENABLED')
 
     def validate_proposals(project):
         for layer in project['composition']['visual_layers']:
             if layer.get('proposal_id'):
-                proposal = store().get('visual_proposal', layer['proposal_id'])
+                broll = layer['kind'] == 'broll'
+                proposal = store().get('broll_proposal' if broll else 'visual_proposal', layer['proposal_id'])
+                if proposal['project_id'] != project['project_id']:
+                    raise EditError('analysis_stale')
+                old = read('project', project['project_id']).get('composition', {}).get('visual_layers', [])
+                saved = any(x.get('proposal_id') == layer['proposal_id'] for x in old)
+                if broll:
+                    asset = read('asset', layer['asset_id'])
+                    if layer['asset_id'] != proposal['asset_id'] or not saved and asset['metadata_version'] != proposal['metadata_version']:
+                        raise EditError('asset_metadata_changed_analyze_again')
                 if proposal['project_id'] != project['project_id'] or proposal['revision'] != project['revision'] or proposal['transcript_version'] != project['transcript_version']:
                     # Saved layers are frozen content, not re-applied AI suggestions.
-                    old = read('project', project['project_id']).get('composition', {}).get('visual_layers', [])
-                    if not any(x.get('proposal_id') == layer['proposal_id'] for x in old):
+                    if not saved:
                         raise EditError('analysis_stale')
+
+    @router.post('/api/edit-projects/{id}/broll/analyze')
+    async def analyze_broll(id: str, request: Request):
+        enabled('LONGFORM_BROLL_ENABLED')
+        p, body = read('project', id), await request.json()
+        revision(p, body)
+        async def work(_):
+            await verify_source(p)
+            import broll_search
+            result = await broll_search.suggest(store(), p, read('transcript', id), body)
+            for item in result['suggestions']:
+                store().put('broll_proposal', item['id'], item)
+            return result
+        return await submit(id, 'broll-analyze', work)
 
     @router.post('/api/edit-projects/{id}/visuals/analyze')
     async def analyze_visuals(id: str, request: Request):
@@ -55,8 +79,16 @@ def register(router, store, enabled, read, revision, failure, submit, verify_sou
             failure(e)
 
     @router.get('/api/edit-assets')
-    async def assets():
-        return [{**edit_assets.public(a), 'available': (store().root / 'assets' / a['filename']).is_file()} for a in store().all('asset')]
+    async def assets(q: str | None = None):
+        records = store().all('asset')
+        if q is not None:
+            try:
+                import broll_search
+                ids = {c['asset_id'] for c in broll_search.search(store(), q)}
+                records = [a for a in records if a['id'] in ids]
+            except EditError as e:
+                failure(e)
+        return [{**edit_assets.public(a), 'available': (store().root / 'assets' / a['filename']).is_file()} for a in records]
 
     @router.patch('/api/edit-assets/{id}')
     async def metadata(id: str, request: Request):
@@ -137,6 +169,7 @@ def register(router, store, enabled, read, revision, failure, submit, verify_sou
             if proposed['project_id'] != id or proposed['revision'] != p['revision'] or d['base_hash'] != composition.identity(p):
                 raise EditError('analysis_stale')
             gates(p, proposed)
+            validate_proposals(proposed)
             deps = await asyncio.to_thread(edit_assets.dependencies, store(), proposed)
             if body.get('composition_hash') != d['hash'] or composition.identity(proposed, deps) != d['hash']:
                 raise EditError('preview_approval_required')

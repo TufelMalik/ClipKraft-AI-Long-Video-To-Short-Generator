@@ -77,3 +77,53 @@ and retained preview approval gating. Dashboard lint and production build passed
 Browser checks confirmed the entry at `/#app`, same-page dialog opening, saved
 project loading, visual section selection and disabled approval before preview.
 These checks do not replace the pending backend/media regression run or CI.
+
+Visual delivery commit `71e5885` passed backend and frontend CI in run
+`40536591499`. Final focused visual/audio/long-form/recut/LLM checks:
+**83 passed, 2 skipped**. The main-page UI and visual feature are committed and pushed.
+
+## Context-aware B-roll — 27 October 2026
+
+Implemented local metadata search, explicit Hindi/Hinglish aliases, optional
+bounded Qwen ranking, private media inspection/tagging, occurrence-linked manual
+and suggested placement, cover/inset, contain/crop focus, in-points, explicit
+tail-loop/final-frame hold, and immutable preview approval. Asset audio is never
+mapped into B-roll outputs. Explanation layers render above B-roll.
+
+`tests/test_broll.py` verifies bilingual/no-match retrieval, model fallback and
+invalid IDs, wrong media type, short files, cover conflicts, stale metadata,
+changed-source anchors, tampered approval and independent flags. Actual FFmpeg
+fixtures cover images, 25-fps portrait video over a 20-fps landscape source,
+crop focus, inset geometry, in-point loops and freeze, source audio absence and
+combined audio/explanations/B-roll. Decoded narration hashes match the original
+render over the approved six-second interval; B-roll audio is excluded. Full
+decoded video hashes match preview/export. An intermediate-container AAC priming
+shift discovered by this test was fixed by retaining the legacy MP4 intermediate
+for visual-only compositions; raw PCM/MKV remains specific to audio mixing.
+
+Focused combined regressions: **92 passed, 2 skipped**. Dashboard lint/build passed
+with the pre-existing environment/Browserslist/bundle notices. Live llama.cpp
+b11898/Qwen3-0.6B Q8_0 ranked a tagged synthetic local asset for an actual selected
+transcript passage in the main OpenShorts page. Browser checks passed tagging,
+media inspection, suggestion, editable inset placement, full preview/playback,
+approval, undo and redo. Final full-suite/export/CI results follow below.
+
+All encoded fixtures are synthetic. Recorded English/Hindi speech quality,
+hour-scale high-resolution resource capacity and tracked callouts are not
+verified by these tests. Feature flags remain off by default; tracked callouts
+remain disabled. These are explicit verification limits, not evidence of those
+workloads completing successfully.
+
+Final local suite: **1,291 passed, 26 skipped, 3 baseline Windows failures**
+(`test_restoring_static` and the two POSIX ASR lock assertions). No new failures.
+Browser final export `6c26b59cdcc34a489ddc80316a604fce` at synthetic project
+revision 7 played successfully with music, Hindi/Hinglish explanation, B-roll
+inset and selectable captions. Composition renderer identity advances to
+`composition-2` for the new B-roll graph and visual-only timestamp correction.
+
+After advancing the renderer identity, final composition media checks passed
+**31 tests**. The temporary standalone verification HTML was removed; browser
+verification and the retained result use the actual `/#app` page. CI runs on
+every feature-branch push; final run status is linked in the delivery response
+and available in the repository's GitHub Actions history for
+`codex/advanced-editing-plan`.

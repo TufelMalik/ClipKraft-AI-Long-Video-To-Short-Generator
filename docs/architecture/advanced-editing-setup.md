@@ -56,7 +56,7 @@ local assets** and select Audio storytelling, Visual explanations or Local media
 Only enabled capabilities are shown; the existing feature defaults are unchanged.
 There is no separate production site or new route for these controls.
 
-Install `requirements-longform.txt` and enable `EDIT_VISUALS_ENABLED` for visual
+Install `requirements-longform.txt` and enable `LONGFORM_VISUALS_ENABLED` for visual
 controls. The capability check requires FFmpeg overlay support, HarfBuzz,
 FreeType, and the bundled Noto Sans and Noto Sans Devanagari fonts. Their SIL OFL
 license is included in `fonts/Noto-OFL.txt`. Text is shaped explicitly with
@@ -83,3 +83,48 @@ model alias `qwen3-0.6b`. No paid model is required.
 Upstream components: [Noto fonts](https://github.com/notofonts/noto-fonts),
 [uharfbuzz](https://github.com/harfbuzz/uharfbuzz), and
 [freetype-py](https://freetype-py.readthedocs.io/en/latest/).
+
+## Context-aware B-roll
+
+Enable `LONGFORM_BROLL_ENABLED=true` alongside `LONGFORM_EDITING_ENABLED=true`.
+The feature uses the existing **Edit full video** option in the OpenShorts page.
+Audio and explanation features are independently gated. FFmpeg must provide
+overlay, scale, pad, crop, fps and tpad; capabilities report actual support.
+
+In **Local media**, upload an image/video and add tags, a description of its
+visible content, language, source label and usage notes. Inspect the ticketed
+media before using it. Unknown usage rights remain unspecified. Assets stay in
+the existing private library; referenced drafts/history/exports prevent deletion.
+Metadata edits use optimistic revision checks. Updating media content requires
+a new upload, preserving existing immutable asset IDs and export dependencies.
+
+In **Context-aware B-roll**, choose the source occurrence and one to four transcript
+sentences, then suggest matches. Search uses deterministic token overlap over
+tags/descriptions/source labels, with a small explicit Hindi/Hinglish alias list
+in `broll_search.py`; additional domain vocabulary belongs in user tags. No model
+or external search service is needed. Optional local Qwen3-0.6B ranks only those
+metadata candidates. Reasons displayed in the UI are verified matched terms;
+neither retrieval nor Qwen inspects pixels. No match is a valid result. Manual
+metadata search and placement remain available without Qwen.
+
+Select a candidate or manually choose an image/video, then set source occurrence,
+start/end, cover/inset, contain/crop and normalized crop focus. Insets occupy 40%
+of frame dimensions at upper left/right, leaving lower caption space. Images
+hold for the selected interval. Video in-points select the start of footage; short
+clips fail unless explicitly set to loop the selected tail or hold its final
+frame. Loop tails are capped at 60 seconds and normalized to a temporary video
+before streaming repetition, avoiding a decoded-frame loop cache. This adds an
+encoding pass for loops and uses the existing deadline/disk/cancellation guards.
+
+At most four B-roll layers can be enabled; full-frame covers cannot overlap.
+Insets may overlap, and explanations render above all B-roll, in saved layer
+order. Review region/caption overlap in preview. B-roll never inserts time or
+uses asset audio: main narration and chosen music/SFX continue. To use another
+audio source, add an explicit audio track through the Audio panel.
+
+Every change requires a complete preview, playback and explicit approval. New
+AI proposals pin source/transcript revision and asset metadata revision; changed
+metadata or assets invalidate pending approval. Saved layers are frozen placements
+and remain manually editable. EDL cuts reuse the common occurrence reconciliation;
+resolve or disable layers marked for review. Undo/redo restores all composition
+settings together. Preview/export use the same path and dependency hashes.

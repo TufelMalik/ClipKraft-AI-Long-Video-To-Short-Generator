@@ -185,7 +185,7 @@ def build_router(host):
         return {'enabled': flag('LONGFORM_EDITING_ENABLED'), 'cold_open': flag('COLD_OPEN_ENABLED'),
                 'smart_cuts': flag('SMART_CUTS_ENABLED'), 'retention': flag('YOUTUBE_RETENTION_ENABLED'),
                 'export': flag('LONGFORM_EXPORT_ENABLED'), 'local_only': True,
-                **support, 'audio': flag('LONGFORM_AUDIO_ENABLED') and support['audio_supported'], 'visuals': flag('LONGFORM_VISUALS_ENABLED') and support['visuals_supported'], 'broll': False,
+                **support, 'audio': flag('LONGFORM_AUDIO_ENABLED') and support['audio_supported'], 'visuals': flag('LONGFORM_VISUALS_ENABLED') and support['visuals_supported'], 'broll': flag('LONGFORM_BROLL_ENABLED') and support['broll_supported'],
                 'asset_upload_max_bytes': 256 * 1024 * 1024,
                 'requires_token': bool(token), 'authenticated': not token or hmac.compare_digest(request.headers.get('x-longform-token', ''), token)}
 
