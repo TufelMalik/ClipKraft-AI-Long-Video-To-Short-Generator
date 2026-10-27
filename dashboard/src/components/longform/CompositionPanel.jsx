@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useImperativeHandle, useRef, useState } from 'react';
 import AudioPanel from './AudioPanel';
 import VisualsPanel from './VisualsPanel';
 import BrollPanel from './BrollPanel';
@@ -6,13 +6,18 @@ import AssetLibrary from './AssetLibrary';
 
 const empty = () => ({ version: 1, voice: { cleanup: 'off', gain_db: 0 }, audio_tracks: [], visual_layers: [], loudness_lufs: -16 });
 
-export default function CompositionPanel({ project, caps, request, wait, action, busy, showMedia, watched, mediaId, applied }) {
+export default function CompositionPanel({ project, caps, request, wait, action, busy, showMedia, watched, mediaId, applied, guideRef = null }) {
+  const workspace = useRef(null);
   const [value, setValue] = useState(() => structuredClone(project.composition || empty()));
   const [assets, setAssets] = useState([]);
   const [preview, setPreview] = useState(null);
   const [audition, setAudition] = useState({ muted: [], solo: '', bypass: false });
   const [loaded, setLoaded] = useState(false);
   const [section, setSection] = useState(caps.audio ? 'audio' : caps.visuals ? 'visuals' : caps.broll ? 'broll' : 'media');
+  useImperativeHandle(guideRef, () => ({ openTool(name) {
+    setSection(name);
+    if (workspace.current) { workspace.current.open = true; workspace.current.scrollIntoView({ block: 'start', behavior: 'auto' }); }
+  } }));
   const change = next => { setValue(next); setPreview(null); };
   const refresh = async () => { setAssets(await request('/api/edit-assets', undefined, 'GET')); setLoaded(true); };
   const render = async (auditionOnly = false) => {
@@ -34,7 +39,7 @@ export default function CompositionPanel({ project, caps, request, wait, action,
     ...(caps.broll ? [{ id: 'broll', title: 'B-roll', description: 'Add footage & images', count: value.visual_layers.filter(v => v.kind === 'broll').length }] : []),
     { id: 'media', title: 'My media', description: 'Upload & organize files', count: assets.length },
   ];
-  return <details open className="composition-workspace my-5" onToggle={e => { if (e.currentTarget.open && !loaded) action(refresh); }}><summary><span>Edit your video</span><span className="composition-badge">Changes save after preview</span></summary>
+  return <details ref={workspace} open className="composition-workspace my-5" onToggle={e => { if (e.currentTarget.open && !loaded) action(refresh); }}><summary><span>Edit your video</span><span className="composition-badge">Changes save after preview</span></summary>
     <fieldset disabled={busy} className="space-y-4 my-4">
       <ol className="composition-steps" aria-label="Editing progress"><li aria-current={!preview ? 'step' : undefined}>1. Edit</li><li aria-current={preview && !canSave ? 'step' : undefined}>2. Watch preview</li><li aria-current={canSave ? 'step' : undefined}>3. Save</li></ol>
       <div className="composition-layout">

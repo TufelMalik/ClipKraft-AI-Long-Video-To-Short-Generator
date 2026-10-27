@@ -172,3 +172,12 @@ The same uploaded speech project subsequently rendered a playable preview and
 final export through the normal application. Full regression suite:
 **1,293 passed, 26 skipped, 3 unchanged baseline Windows failures**. Dashboard
 lint/build and all four response-handler checks passed.
+
+## In-editor beginner guide
+
+Added a four-step, reopenable English/Hinglish guide covering source upload,
+practical Audio/Text & graphics/B-roll examples, exact-preview approval, export
+and downloads. Tool shortcuts open and scroll to the selected existing panel;
+they are disabled until a source project is open. Browser checks verified the
+language switch, step navigation, source gating and Text & graphics shortcut.
+No backend workflow, default setting or approval requirement changes.

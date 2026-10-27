@@ -22,6 +22,14 @@
 .long-video-editor :is(.text-gray-300, .text-gray-400) { color: var(--color-muted); }
 .long-video-editor :is(.border-gray-600, .border-gray-700) { border-color: var(--color-rule); }
 .long-video-editor button:disabled { opacity: .45; cursor: not-allowed; }
+.editor-guide { margin: 16px 0; padding: 14px 16px; border: 1px solid var(--color-rule); border-radius: 10px; background: var(--color-paper-2); }
+.editor-guide-toggle { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; text-align: left; font-weight: 600; }
+.editor-guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.editor-guide-steps button { min-height: 42px; padding: 8px; border: 1px solid var(--color-rule); border-radius: 6px; font-size: 12px; text-align: left; }
+.editor-guide-steps [aria-current='step'], .editor-guide button[aria-pressed='true'] { border-color: var(--color-accent); color: var(--color-accent); }
+.editor-guide-body { display: grid; gap: 10px; font-size: 14px; line-height: 1.6; max-width: 85ch; padding: 8px 0; }
+.editor-guide-body h3 { font-weight: 600; }
+@media (max-width: 480px) { .editor-guide-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .composition-workspace { border: 1px solid var(--color-rule); border-radius: 12px; padding: 16px; background: var(--color-paper-2); }
 .composition-workspace > summary { cursor: pointer; font-weight: 600; line-height: 1.8; }
 .composition-badge { display: inline-block; font-size: 11px; font-weight: 400; color: var(--color-muted); border: 1px solid var(--color-rule); border-radius: 20px; padding: 2px 9px; }

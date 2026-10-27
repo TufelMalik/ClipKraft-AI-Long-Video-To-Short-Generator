@@ -61,6 +61,11 @@ The dashboard's development proxy must target that application. Isolated router
 test hosts are for automated fixtures and do not provide the complete application
 upload/job/source contract.
 
+The editor includes **How to use this editor**, shown initially and always
+reopenable. Choose English or Hinglish and follow Open a video → Choose a tool →
+Preview & save → Download. Each tool has a short example and an Open tool button.
+The guide explains why Save stays disabled and how saved exports differ from drafts.
+
 Install `requirements-longform.txt` and enable `LONGFORM_VISUALS_ENABLED` for visual
 controls. The capability check requires FFmpeg overlay support, HarfBuzz,
 FreeType, and the bundled Noto Sans and Noto Sans Devanagari fonts. Their SIL OFL
