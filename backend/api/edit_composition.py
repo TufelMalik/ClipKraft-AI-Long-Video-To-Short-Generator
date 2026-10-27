@@ -17,6 +17,32 @@ def register(router, store, enabled, read, revision, failure, submit, verify_sou
         a, b = before.get('composition', composition.empty()), after['composition']
         if any(a[k] != b[k] for k in ('voice', 'audio_tracks', 'loudness_lufs')):
             enabled('LONGFORM_AUDIO_ENABLED')
+        if a['visual_layers'] != b['visual_layers']:
+            enabled('LONGFORM_VISUALS_ENABLED')
+
+    def validate_proposals(project):
+        for layer in project['composition']['visual_layers']:
+            if layer.get('proposal_id'):
+                proposal = store().get('visual_proposal', layer['proposal_id'])
+                if proposal['project_id'] != project['project_id'] or proposal['revision'] != project['revision'] or proposal['transcript_version'] != project['transcript_version']:
+                    # Saved layers are frozen content, not re-applied AI suggestions.
+                    old = read('project', project['project_id']).get('composition', {}).get('visual_layers', [])
+                    if not any(x.get('proposal_id') == layer['proposal_id'] for x in old):
+                        raise EditError('analysis_stale')
+
+    @router.post('/api/edit-projects/{id}/visuals/analyze')
+    async def analyze_visuals(id: str, request: Request):
+        enabled('LONGFORM_VISUALS_ENABLED')
+        p, body = read('project', id), await request.json()
+        revision(p, body)
+        async def work(_):
+            await verify_source(p)
+            import edit_llm
+            suggestions = await edit_llm.visual_suggestions(p, read('transcript', id), body.get('segment_id'), body.get('sentence_ids'))
+            for item in suggestions:
+                store().put('visual_proposal', item['id'], item)
+            return {'suggestions': suggestions}
+        return await submit(id, 'visuals-analyze', work)
 
     @router.post('/api/edit-assets')
     async def upload(file: UploadFile = File(...)):
@@ -79,6 +105,7 @@ def register(router, store, enabled, read, revision, failure, submit, verify_sou
         try:
             proposed = composition.draft(p, body.get('composition'))
             gates(p, proposed)
+            validate_proposals(proposed)
         except EditError as e:
             failure(e)
         async def work(op_id):

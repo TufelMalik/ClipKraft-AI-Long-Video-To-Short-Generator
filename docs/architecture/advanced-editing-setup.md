@@ -47,3 +47,39 @@ older binary against a schema-v2 database: old releases cannot safely understand
 its tracks. To downgrade, restore a matching pre-v2 database backup and preserve
 immutable exports separately. Disabling feature flags stops new changes; it does
 not erase compositions or silently omit saved layers during rendering.
+
+## Visual explanations
+
+Open the existing OpenShorts app and choose **Edit full video** in its header.
+The editor opens in the same page. Inside a project, expand **Audio, visuals and
+local assets** and select Audio storytelling, Visual explanations or Local media.
+Only enabled capabilities are shown; the existing feature defaults are unchanged.
+There is no separate production site or new route for these controls.
+
+Install `requirements-longform.txt` and enable `EDIT_VISUALS_ENABLED` for visual
+controls. The capability check requires FFmpeg overlay support, HarfBuzz,
+FreeType, and the bundled Noto Sans and Noto Sans Devanagari fonts. Their SIL OFL
+license is included in `fonts/Noto-OFL.txt`. Text is shaped explicitly with
+HarfBuzz and rasterized with FreeType; Pillow RAQM is not required. English,
+Hindi and Hinglish are supported; other scripts are not verified.
+
+The editor provides key points, comparisons, ordered processes and callouts.
+Set the source occurrence and interval, position, size, theme and transition;
+callout boxes use normalized coordinates. Overflow and unsupported glyphs fail
+with an error instead of silently clipping or substituting text. Template
+placements reserve the lower caption area; manually placed callouts need review.
+Preview, play and explicitly approve the complete composition before saving.
+Font, shaping engine and template versions are pinned; changes require a new
+preview and approval. Visual overlays require an additional video encoding pass.
+Visual-only edits preserve the existing audio treatment.
+
+Optional Qwen3-0.6B suggestions select short, exact transcript extracts for key
+points or callouts. Select up to four sentences from one source occurrence.
+Comparisons and processes are manually authored. Suggestions are editable and
+never apply automatically; missing or unsuitable model output leaves manual
+editing available. Configure the existing OpenAI-compatible local endpoint with
+model alias `qwen3-0.6b`. No paid model is required.
+
+Upstream components: [Noto fonts](https://github.com/notofonts/noto-fonts),
+[uharfbuzz](https://github.com/harfbuzz/uharfbuzz), and
+[freetype-py](https://freetype-py.readthedocs.io/en/latest/).

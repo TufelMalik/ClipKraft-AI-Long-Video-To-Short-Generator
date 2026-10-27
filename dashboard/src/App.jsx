@@ -1794,6 +1794,7 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+            <LongVideoEditor jobId={jobId} />
             {userProfiles.length > 0 && (
               <UserProfileSelector
                 profiles={userProfiles}
@@ -2828,7 +2829,6 @@ function App() {
       )}
 
 
-      <LongVideoEditor jobId={jobId} />
       {editingClip !== null && results?.clips?.[editingClip] && (
         <ClipEditor
           jobId={jobId}

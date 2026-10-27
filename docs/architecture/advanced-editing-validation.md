@@ -42,3 +42,38 @@ the documented launcher, use the actual bundled font, and support Windows anonym
 stdin pipes. Targeted checks: **18 passed**. Full local suite after repairs:
 **1,250 passed, 26 skipped, 3 baseline Windows failures**, no errors. CI now installs
 FFmpeg so new media tests cannot silently skip for a missing executable.
+
+Audio compatibility commit `5854d04` was pushed to the feature branch. GitHub
+Actions run `40318316166` passed both backend and frontend jobs.
+
+## Visual explanations — verified local release
+
+Four manual templates, source occurrence timing, Hindi/Hinglish shaping,
+grounded Qwen suggestions and explicit preview approval are implemented locally.
+Before the final environment-signature change, focused tests passed **42 tests**;
+the full suite reported **1,262 passed, 26 skipped, 3 baseline Windows failures**.
+Dashboard lint and build passed. Raster tests cover all four templates in portrait
+and landscape, unsupported glyphs, overflow and callout bounds. Encoded media
+checks covered overlay boundaries, preview/export parity and silent source video.
+
+Browser verification used the real editor/API with an encoded synthetic source:
+Hindi/Hinglish key point over music and captions, playback, approval and export
+passed. This is not a recorded-speech quality assessment. A local llama.cpp
+b11898 CPU server with official Qwen3-0.6B Q8_0 GGUF returned a grounded callout
+using the final bounded exact-extract schema. Earlier broader schemas produced
+unusable output; the implemented assistant only selects key points and callouts.
+This verifies connectivity and one grounded result, not general editorial quality.
+
+The final font/engine/template signature pinning and expanded encoded tests for
+all four templates passed in the subsequent full suite: **1,274 passed, 26 skipped,
+3 unchanged baseline Windows failures**. An earlier automatic approval usage-limit
+block was resolved before this run. Recorded speech, hour-scale high-resolution
+capacity and tracking remain unverified; tracking is disabled. B-roll is the next
+separate delivery. CI results are recorded after pushing the visual feature.
+
+UI integration follow-up: moved the editor entry into the existing app header,
+reused the app theme, grouped composition controls into Audio/Visuals/Local media,
+and retained preview approval gating. Dashboard lint and production build passed.
+Browser checks confirmed the entry at `/#app`, same-page dialog opening, saved
+project loading, visual section selection and disabled approval before preview.
+These checks do not replace the pending backend/media regression run or CI.

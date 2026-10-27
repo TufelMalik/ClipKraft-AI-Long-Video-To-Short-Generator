@@ -11,4 +11,7 @@ def installed():
     except (OSError, subprocess.TimeoutExpired):
         filters = set()
     needed = {'afftdn', 'sidechaincompress', 'amix', 'afade', 'loudnorm', 'aloop'}
-    return {'audio_supported': needed <= filters, 'audio_filters': sorted(needed & filters)}
+    from visual_templates import support
+    return {'audio_supported': needed <= filters, 'audio_filters': sorted(needed & filters),
+        'visuals_supported': support() and 'overlay' in filters, 'text_shaping': 'harfbuzz-freetype' if support() else 'unavailable',
+        'template_ids': ['key_point', 'comparison', 'process', 'callout'] if support() else []}

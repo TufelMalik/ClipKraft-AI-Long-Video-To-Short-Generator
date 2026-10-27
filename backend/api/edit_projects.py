@@ -185,7 +185,7 @@ def build_router(host):
         return {'enabled': flag('LONGFORM_EDITING_ENABLED'), 'cold_open': flag('COLD_OPEN_ENABLED'),
                 'smart_cuts': flag('SMART_CUTS_ENABLED'), 'retention': flag('YOUTUBE_RETENTION_ENABLED'),
                 'export': flag('LONGFORM_EXPORT_ENABLED'), 'local_only': True,
-                **support, 'audio': flag('LONGFORM_AUDIO_ENABLED') and support['audio_supported'], 'visuals': False, 'broll': False,
+                **support, 'audio': flag('LONGFORM_AUDIO_ENABLED') and support['audio_supported'], 'visuals': flag('LONGFORM_VISUALS_ENABLED') and support['visuals_supported'], 'broll': False,
                 'asset_upload_max_bytes': 256 * 1024 * 1024,
                 'requires_token': bool(token), 'authenticated': not token or hmac.compare_digest(request.headers.get('x-longform-token', ''), token)}
 
@@ -285,6 +285,7 @@ def build_router(host):
         expires = lease(p) if available else None
         exports = [e for e in store().all('export') if e['project_id'] == id and not e.get('preview')]
         return {**p, 'source_available': available, 'source_lease_expires_at': expires, 'source_retention': 'Existing job retention and disk limits apply; re-upload if expired.',
+                'source_sentences': __import__('edit_project').sentences(read('transcript', id)),
                 'time_map': timeline(p['segments']), 'transcript': remap_transcript(read('transcript', id), timeline(p['segments'])),
                 'exports': exports, 'publications': [x for x in store().all('publication') if x['project_id'] == id]}
 

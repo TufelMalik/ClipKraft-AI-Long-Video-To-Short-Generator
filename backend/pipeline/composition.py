@@ -51,13 +51,71 @@ class AudioTrack(Model):
     needs_review: bool = False
 
 
+Text = Annotated[str, Field(min_length=1, max_length=160)]
+
+
+class VisualBase(Model):
+    id: str = Field(min_length=1, max_length=100)
+    template_version: Literal[1] = 1
+    anchor: OccurrenceAnchor
+    position: Literal['upper_third', 'center', 'upper_left', 'upper_right'] = 'upper_third'
+    size: Literal['small', 'medium', 'large'] = 'medium'
+    theme: Literal['dark', 'light'] = 'dark'
+    transition_ms: int = Field(default=200, ge=0, le=500)
+    enabled: bool = True
+    needs_review: bool = False
+    sentence_ids: list[str] = Field(default_factory=list, max_length=4)
+    proposal_id: str | None = None
+
+
+class KeyPoint(VisualBase):
+    kind: Literal['key_point']
+    title: Text
+    text: Text
+
+
+class ComparisonRow(Model):
+    label: Text
+    left: Text
+    right: Text
+
+
+class Comparison(VisualBase):
+    kind: Literal['comparison']
+    title: Text
+    labels: list[Text] = Field(min_length=2, max_length=2)
+    rows: list[ComparisonRow] = Field(min_length=1, max_length=3)
+
+
+class Process(VisualBase):
+    kind: Literal['process']
+    title: Text
+    steps: list[Text] = Field(min_length=2, max_length=4)
+
+
+class Box(Model):
+    x: float = Field(ge=0, le=1, allow_inf_nan=False)
+    y: float = Field(ge=0, le=1, allow_inf_nan=False)
+    width: float = Field(gt=0, le=1, allow_inf_nan=False)
+    height: float = Field(gt=0, le=1, allow_inf_nan=False)
+
+
+class Callout(VisualBase):
+    kind: Literal['callout']
+    text: Text
+    box: Box
+
+
+Visual = Annotated[KeyPoint | Comparison | Process | Callout, Field(discriminator='kind')]
+
+
 class Composition(Model):
     version: Literal[1] = 1
     voice: Voice = Field(default_factory=Voice)
     audio_tracks: list[AudioTrack] = Field(default_factory=list, max_length=8)
-    # Closed until each renderer capability ships.
-    visual_layers: list = Field(default_factory=list, max_length=0)
+    visual_layers: list[Visual] = Field(default_factory=list, max_length=16)
     loudness_lufs: float = Field(default=-16, ge=-24, le=-14, allow_inf_nan=False)
+    visual_signature: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
 
 
 def empty():
@@ -98,17 +156,27 @@ def validate(project):
         if layer['id'] in seen:
             raise EditError('duplicate_layer_id')
         seen.add(layer['id'])
+        if layer['kind'] == 'callout':
+            box = layer['box']
+            if box['x'] + box['width'] > 1 or box['y'] + box['height'] > 1:
+                raise EditError('callout_outside_frame')
         if layer['needs_review']:
             continue
         a, b = resolve(project, layer['anchor'])
         if layer.get('fade_in_ms', 0) + layer.get('fade_out_ms', 0) > b - a:
             raise EditError('fades_exceed_track')
+        if layer.get('transition_ms', 0) * 2 > b - a:
+            raise EditError('transition_exceeds_layer')
     return project
 
 
-def active(project):
+def audio_active(project):
     c = project.get('composition', empty())
-    return c['voice'] != empty()['voice'] or any(x['enabled'] for x in layers(project))
+    return c['voice'] != empty()['voice'] or c['loudness_lufs'] != empty()['loudness_lufs'] or any(x['enabled'] for x in c['audio_tracks'])
+
+
+def active(project):
+    return audio_active(project) or any(x['enabled'] for x in layers(project))
 
 
 def reconcile(before, after):
@@ -135,12 +203,22 @@ def reconcile(before, after):
 
 
 def identity(project, dependencies=()):
+    visual_dependencies = []
+    if any(x['enabled'] and x['kind'] not in ('music', 'sfx', 'broll') for x in layers(project)):
+        from visual_templates import dependencies as template_dependencies
+        visual_dependencies = template_dependencies()
     return digest({'segments': project['segments'], 'source': project['source'],
         'transcript_version': project['transcript_version'], 'composition': project.get('composition', empty()),
-        'dependencies': list(dependencies), 'renderer': RENDERER_VERSION})
+        'dependencies': list(dependencies) + visual_dependencies, 'renderer': RENDERER_VERSION})
 
 
 def draft(project, value):
     p = copy.deepcopy(project)
     p.update(schema_version=2, composition=value)
-    return validate(p)
+    validate(p)
+    if any(x['enabled'] and x['kind'] != 'broll' for x in p['composition']['visual_layers']):
+        from visual_templates import dependencies
+        p['composition']['visual_signature'] = digest(dependencies())
+    else:
+        p['composition']['visual_signature'] = None
+    return p

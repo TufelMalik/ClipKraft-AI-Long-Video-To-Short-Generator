@@ -66,8 +66,13 @@ async def render(project, source, transcript, directory, export_id, asset_store=
     import composition
     composition.validate(project)
     composed = composition.active(project)
+    mix_audio = composition.audio_active(project)
     dependencies = []
     if 'composition' in project:
+        if any(x['enabled'] and x['kind'] != 'broll' for x in project['composition']['visual_layers']):
+            from visual_templates import dependencies as template_dependencies
+            if project['composition']['visual_signature'] != digest(template_dependencies()):
+                raise EditError('visual_environment_changed_preview_and_approve_again')
         from edit_assets import dependencies as asset_dependencies
         if any(x['enabled'] and x['needs_review'] for x in composition.layers(project)):
             raise EditError('unresolved_layers_disable_or_reanchor')
@@ -92,7 +97,7 @@ async def render(project, source, transcript, directory, export_id, asset_store=
             await command(['ffmpeg', '-v', 'error', '-y', '-ss', str(seg['source_start_ms'] / 1000),
                 '-protocol_whitelist', 'file,pipe', '-i', source, '-t', str((seg['source_end_ms'] - seg['source_start_ms']) / 1000),
                 '-map', '0:v:0', '-map', '0:a:0?', *video_encode_args(QUALITY_FAST), '-pix_fmt', 'yuv420p',
-                *(['-c:a', 'pcm_s16le'] if composed else audio_encode_args()), *METADATA_SCRUB,
+                *(['-c:a', 'pcm_s16le'] if mix_audio else audio_encode_args()), *METADATA_SCRUB,
                 *([] if composed else ['-movflags', '+faststart']), part],
                 max(1, deadline - (time.monotonic() - started)), work, disk_cap)
             parts.append(part)
@@ -132,6 +137,7 @@ async def render(project, source, transcript, directory, export_id, asset_store=
                 'time_map': entries, 'fingerprint': checksum, 'filename': target.name,
                 'captions_filename': srt_target.name, 'created_at': time.time(),
                 **({'composition_hash': composition.identity(project, dependencies), 'dependencies': dependencies,
+                    'template_dependencies': __import__('visual_templates').dependencies() if any(x['enabled'] and x['kind'] not in ('music', 'sfx', 'broll') for x in composition.layers(project)) else [],
                     'renderer_version': composition.RENDERER_VERSION, 'audio_measurement': measured} if 'composition' in project else {})}
     except BaseException:
         target.unlink(missing_ok=True)

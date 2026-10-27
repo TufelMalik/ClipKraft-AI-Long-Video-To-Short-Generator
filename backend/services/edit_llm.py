@@ -3,11 +3,11 @@ import json
 import logging
 import os
 import time
-from typing import Literal
+from typing import Literal, Union
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
 from edit_project import EditError, sentences, protected, uid
 
 LOG = logging.getLogger(__name__)
@@ -37,6 +37,76 @@ class Cut(BaseModel):
 
 class Cuts(BaseModel):
     cuts: list[Cut] = Field(max_length=8)
+
+
+class VisualChoice(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['key_point', 'callout']
+    sentence_ids: list[str] = Field(min_length=1, max_length=4)
+    title: str = Field(max_length=160)
+    text: str = Field(max_length=160)
+    reason: str = Field(max_length=300)
+
+
+class VisualAdvice(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    suggestions: list[VisualChoice] = Field(max_length=3)
+
+
+async def visual_suggestions(project, transcript, segment_id, sentence_ids):
+    """Conservative extractive suggestions; never claim visual understanding."""
+    from composition import draft, empty
+    if os.getenv('EDIT_LLM_MODEL', 'qwen3-0.6b').lower() != 'qwen3-0.6b':
+        raise EditError('qwen3_0_6b_required')
+    if not isinstance(sentence_ids, list) or not 1 <= len(sentence_ids) <= 4 or any(not isinstance(s, str) for s in sentence_ids):
+        raise EditError('select_one_to_four_sentences')
+    segment = next((s for s in project['segments'] if s['id'] == segment_id), None)
+    units = {s['id']: s for s in sentences(transcript)}
+    if not segment or len(set(sentence_ids)) != len(sentence_ids) or any(id not in units or not segment['source_start_ms'] <= units[id]['start_ms'] < units[id]['end_ms'] <= segment['source_end_ms'] for id in sentence_ids):
+        raise EditError('invalid_sentence_selection')
+    selected = sorted((units[id] for id in sentence_ids), key=lambda s: s['start_ms'])
+    # Qwen3-0.6B is more reliable selecting bounded extracts than inventing a
+    # complex template object. The grammar binds IDs and wording together.
+    choices = []
+    for i, sentence in enumerate(selected):
+        if len(sentence['text']) > 160:
+            continue
+        title = ' '.join(sentence['text'].split()[:5])
+        choices.append(create_model(f'GroundedVisual{i}', __base__=VisualChoice,
+            sentence_ids=(list[Literal[sentence['id']]], Field(min_length=1, max_length=1)),
+            title=(Literal[title], ...), text=(Literal[sentence['text']], ...)))
+    if not choices:
+        return []
+    schema = create_model('GroundedVisualAdvice', __base__=VisualAdvice,
+        suggestions=(list[Union[tuple(choices)]], Field(max_length=2)))
+    answer = await generate(selected, schema,
+        'Choose one or two useful transcript sentences to emphasize as key_point or callout. The schema provides exact source wording and IDs; choose the matching fields together. Do not select weak or context-dependent statements. Return no suggestions when not useful. This is a transcript, not inspected pixels.')
+    result = []
+    for item in answer['suggestions']:
+        ids = item['sentence_ids']
+        if not ids or len(set(ids)) != len(ids) or any(id not in sentence_ids for id in ids):
+            raise EditError('invalid_model_output')
+        passages = sorted((units[id] for id in ids), key=lambda s: s['start_ms'])
+        source = ' '.join(s['text'] for s in passages)
+        strings = [item['title'], item['text']]
+        if any(s and s.casefold() not in source.casefold() for s in strings):
+            continue  # ungrounded paraphrases remain manual, never applied as AI facts
+        id = uid()
+        layer = {'id': uid(), 'kind': item['kind'], 'sentence_ids': ids, 'proposal_id': id,
+            'anchor': {'type': 'occurrence', 'segment_id': segment_id, 'source_start_ms': passages[0]['start_ms'], 'source_end_ms': passages[-1]['end_ms']}}
+        if item['kind'] == 'key_point':
+            layer.update(title=item['title'], text=item['text'])
+        else:
+            layer.update(text=item['text'], box={'x': .3, 'y': .45, 'width': .3, 'height': .2})
+        try:
+            layer = draft(project, {**empty(), 'visual_layers': [layer]})['composition']['visual_layers'][0]
+        except EditError:
+            continue
+        result.append({'id': id, 'project_id': project['project_id'], 'revision': project['revision'],
+            'transcript_version': project['transcript_version'], 'prompt_version': 'visual-extractive-1',
+            'layer': layer, 'reason': item['reason'], 'source_text': source,
+            'review_note': 'Extracted wording; review context and placement before approval.'})
+    return result
 
 
 async def generate(data, schema, instruction):
