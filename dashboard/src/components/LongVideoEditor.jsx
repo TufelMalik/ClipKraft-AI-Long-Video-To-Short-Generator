@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { getApiUrl } from '../config';
+import { readEditResponse } from '../lib/editApiResponse';
 import LongformTranscript from './LongformTranscript';
 import CompositionPanel from './longform/CompositionPanel';
 import './longform/editor.css';
@@ -40,9 +41,7 @@ export default function LongVideoEditor({ jobId }) {
   async function request(path, body, method = 'POST') {
     const response = await apiFetch(path, { method, headers: { 'X-Longform-Token': token, ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }) },
       ...(body === undefined ? {} : { body: body instanceof FormData ? body : JSON.stringify(body) }) });
-    const result = await response.json();
-    if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'Request failed');
-    return result;
+    return readEditResponse(response);
   }
 
   useEffect(() => {
@@ -50,7 +49,7 @@ export default function LongVideoEditor({ jobId }) {
     apiFetch('/api/edit-projects/capabilities').then(async r => {
       if (!active) return;
       if (r.status === 401) { setLocked(true); return; }
-      if (r.ok) { const c = await r.json(); setCaps(c); setLocked(c.enabled && c.requires_token && !c.authenticated); }
+      if (r.ok) { const c = await readEditResponse(r); setCaps(c); setLocked(c.enabled && c.requires_token && !c.authenticated); }
     }).catch(() => {});
     return () => { active = false; polling.current?.abort(); };
   }, []);

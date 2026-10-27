@@ -56,6 +56,11 @@ local assets** and select Audio, Text & graphics, B-roll or My media.
 Only enabled capabilities are shown; the existing feature defaults are unchanged.
 There is no separate production site or new route for these controls.
 
+Run the normal application backend (`uvicorn app:app`) for uploads and editing.
+The dashboard's development proxy must target that application. Isolated router
+test hosts are for automated fixtures and do not provide the complete application
+upload/job/source contract.
+
 Install `requirements-longform.txt` and enable `LONGFORM_VISUALS_ENABLED` for visual
 controls. The capability check requires FFmpeg overlay support, HarfBuzz,
 FreeType, and the bundled Noto Sans and Noto Sans Devanagari fonts. Their SIL OFL

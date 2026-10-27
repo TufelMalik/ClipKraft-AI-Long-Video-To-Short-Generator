@@ -142,3 +142,33 @@ Browser verification covered 390px and 1280px layouts, loaded header image,
 advanced-setting visibility, draft editing, preview playback unlocking Save,
 and successful save to synthetic project revision 8. Lint/build passed. Full
 suite: **1,291 passed, 26 skipped, 3 unchanged baseline Windows failures**.
+
+## Full-video upload and error-response correction
+
+The local browser had remained connected to an isolated verification router host,
+which did not provide the normal application's upload directory. Full-video
+upload therefore returned a plain-text HTTP 500, and unconditional frontend JSON
+parsing hid it behind `Unexpected token`. The local preview now uses the actual
+`app:app` backend. Existing private library assets were preserved. Synthetic
+verification projects remain separate from the normal application's projects.
+
+An actual upload then exposed a Windows subprocess issue: redirected ASR progress
+logs used cp1252 and failed on Unicode. The transcription worker explicitly sets
+UTF-8 on stdout/stderr. A subprocess regression forces cp1252 and verifies Unicode
+progress plus an atomic multilingual transcript write. An HTTP ingest regression
+uses the real application host contract and verifies source discovery, project
+creation, transcript availability and a playable encoded preview (inference only
+is stubbed in this automated test).
+
+The editor now reads non-JSON server/proxy failures as readable HTTP errors while
+preserving structured server details. Four Node response-handler checks pass and
+run in frontend CI. Focused Python upload/worker/long-form checks: **25 passed**.
+Manual verification uploaded a locally generated speech video through the browser
+to the actual app and completed real faster-whisper transcription into an editable
+project. This is generated speech, not representative recorded-speech quality
+or hour-scale capacity verification.
+
+The same uploaded speech project subsequently rendered a playable preview and
+final export through the normal application. Full regression suite:
+**1,293 passed, 26 skipped, 3 unchanged baseline Windows failures**. Dashboard
+lint/build and all four response-handler checks passed.
