@@ -159,6 +159,34 @@ _whisper_lock = threading.Lock()
 _whisper_force_cpu = False
 
 
+def _patch_pyav_metadata_errors(av_module=None):
+    """Bridge faster-whisper 1.2.1 to PyAV builds that removed metadata_errors.
+
+    faster-whisper passes this keyword to ``av.open``. Some installed PyAV 19
+    builds reject it, which aborts transcription before audio decoding starts.
+    Keep the keyword on versions that support it and retry without it only for
+    that exact compatibility error.
+    """
+    if av_module is None:
+        import av as av_module
+    original_open = av_module.open
+    if getattr(original_open, '_openshorts_metadata_errors_compat', False):
+        return
+
+    def open_compat(*args, **kwargs):
+        try:
+            return original_open(*args, **kwargs)
+        except TypeError as exc:
+            if 'metadata_errors' not in kwargs or "unexpected keyword argument 'metadata_errors'" not in str(exc):
+                raise
+            retry_kwargs = dict(kwargs)
+            retry_kwargs.pop('metadata_errors')
+            return original_open(*args, **retry_kwargs)
+
+    open_compat._openshorts_metadata_errors_compat = True
+    av_module.open = open_compat
+
+
 def _get_whisper_model():
     """Process-wide WhisperModel singleton, rebuilt if the env config changes.
 
@@ -166,6 +194,7 @@ def _get_whisper_model():
     on GPU would also mean re-allocating a couple of GB of VRAM per job).
     """
     global _whisper_model, _whisper_key
+    _patch_pyav_metadata_errors()
     cfg = get_whisper_config()
     if _whisper_force_cpu:
         cfg["device"] = "cpu"
