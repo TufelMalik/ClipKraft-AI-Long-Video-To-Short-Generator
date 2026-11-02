@@ -15,8 +15,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
 
     // Dynamic Timestamp clips list
     const [clips, setClips] = useState([
-        { id: 1, hook: 'BORING JOB. REAL OPPORTUNITY?', start: '03:26', end: '04:05' },
-        { id: 2, hook: 'LOOKING RICH IS EXPENSIVE.', start: '10:21', end: '12:28' }
+        { id: 1, hook: '', start: '', end: '' },
     ]);
 
     // Features / Options
@@ -399,7 +398,7 @@ export default function ManualClipTab({ onJobStarted, isProcessing }) {
                                             type="text"
                                             value={clip.hook}
                                             onChange={(e) => updateClipField(clip.id, 'hook', e.target.value)}
-                                            placeholder="e.g. BORING JOB. REAL OPPORTUNITY?"
+                                            placeholder="Optional hook for this clip"
                                             className="w-full px-3 py-1.5 rounded-input border border-rule bg-paper text-xs text-ink placeholder:text-muted focus:border-brass focus:outline-none"
                                         />
                                     </div>
