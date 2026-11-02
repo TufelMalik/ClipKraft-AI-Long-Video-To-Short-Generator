@@ -254,6 +254,21 @@ def _log(message: str) -> None:
         stream.write(safe_text + "\n")
     stream.flush()
 
+
+def editing_requirements_guidance() -> str:
+    """Bounded per-job guidance; empty by default to preserve old prompts."""
+    requirements = os.environ.get("USER_EDITING_REQUIREMENTS", "").strip()
+    if not requirements:
+        return ""
+    return (
+        "\nUSER EDITING REQUIREMENTS (additional preferences):\n"
+        f"{requirements}\n"
+        "Use these preferences when choosing moments and writing titles/hooks, "
+        "only when supported by the transcript. Do not invent events, claims, "
+        "or visual/audio actions. The existing timing rules and JSON schema "
+        "must still be followed.\n"
+    )
+
 SCORE_PROMPT_TEMPLATE = """
 You are a senior short-form video strategist.
 RANK these candidate windows by how well each would work as a standalone short.

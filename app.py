@@ -3106,6 +3106,7 @@ async def process_endpoint(
     target_clips: Optional[str] = Form(None),
     clip_min_seconds: Optional[str] = Form(None),
     clip_max_seconds: Optional[str] = Form(None),
+    editing_requirements: Optional[str] = Form(None),
     auto_hook: Optional[str] = Form(None),
     auto_hook_style: Optional[str] = Form(None),
     thumbnail_session_id: Optional[str] = Form(None),
@@ -3141,6 +3142,7 @@ async def process_endpoint(
         target_clips = body.get("target_clips")
         clip_min_seconds = body.get("clip_min_seconds")
         clip_max_seconds = body.get("clip_max_seconds")
+        editing_requirements = body.get("editing_requirements")
         auto_hook = body.get("auto_hook")
         auto_hook_style = body.get("auto_hook_style")
         thumbnail_session_id = body.get("thumbnail_session_id")
@@ -3194,6 +3196,15 @@ async def process_endpoint(
 
     if url and DISABLE_YOUTUBE_URL:
         raise HTTPException(status_code=403, detail="YouTube URL ingest is disabled on this deployment. Please upload a file you own.")
+
+    # Optional plain-language guidance is bounded and kept job-local. Empty
+    # input leaves the established automatic pipeline unchanged.
+    if editing_requirements is not None:
+        if not isinstance(editing_requirements, str):
+            raise HTTPException(status_code=400, detail="editing_requirements must be text")
+        editing_requirements = editing_requirements.strip()
+        if len(editing_requirements) > 1000:
+            raise HTTPException(status_code=400, detail="editing_requirements must be 1000 characters or fewer")
 
     # Refuse a URL no server-side fetch may touch before anything fetches it:
     # the quality probe below used to run yt-dlp on it unvalidated (tailnet
@@ -3257,6 +3268,10 @@ async def process_endpoint(
         if auto_hook_style in HOOK_STYLES:
             env["AUTO_HOOK_STYLE"] = auto_hook_style
         print(f"[auto-hook] job={job_id} style={env.get('AUTO_HOOK_STYLE', 'classic')}")
+
+    env.pop("USER_EDITING_REQUIREMENTS", None)
+    if editing_requirements:
+        env["USER_EDITING_REQUIREMENTS"] = editing_requirements
 
     # Manual generation controls (discussion #65): optional clip-count target
     # and duration band, forwarded to the selection prompts via the same env

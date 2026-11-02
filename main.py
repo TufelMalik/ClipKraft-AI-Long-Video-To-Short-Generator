@@ -2093,7 +2093,8 @@ def get_viral_clips(transcript_result, video_duration):
         def _score_prompt(ws):
             return gemini_worker.SCORE_PROMPT_TEMPLATE.format(
                 video_duration=video_duration, language=language,
-                windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+                windows_json=json.dumps(_payload(ws), ensure_ascii=False)) + \
+                gemini_worker.editing_requirements_guidance()
 
         for batch in score_batches(windows, SCORE_BATCH):
             scored.extend(_run_stage_split(
@@ -2120,7 +2121,8 @@ def get_viral_clips(transcript_result, video_duration):
                     video_duration=video_duration, language=language,
                     min_clips=lo, max_clips=hi,
                     min_secs=min_secs, max_secs=max_secs,
-                    windows_json=json.dumps(_payload(ws), ensure_ascii=False))
+                    windows_json=json.dumps(_payload(ws), ensure_ascii=False)) + \
+                    gemini_worker.editing_requirements_guidance()
             return build
 
         shorts = _run_stage_split(client, model_name, shortlist,

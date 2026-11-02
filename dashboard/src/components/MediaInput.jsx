@@ -39,6 +39,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
     const fileTooShort = fileSeconds != null && fileSeconds < MIN_SOURCE_SECONDS;
     const [acknowledged, setAcknowledged] = useState(false);
     const [outputFormat, setOutputFormat] = useState('vertical'); // vertical | horizontal | square
+    const [editingRequirements, setEditingRequirements] = useState('');
     const [showInfo, setShowInfo] = useState(false);
     // Advanced generation controls — empty string means "let the AI decide",
     // which keeps the default pipeline behavior untouched.
@@ -124,6 +125,7 @@ export default function MediaInput({ onProcess, isProcessing }) {
             autoHook,
             autoHookStyle,
             layout,
+            editingRequirements: editingRequirements.trim(),
         };
         try {
             localStorage.setItem('os_auto_hook', autoHook ? '1' : '0');
@@ -253,6 +255,22 @@ export default function MediaInput({ onProcess, isProcessing }) {
                         )}
                     </div>
                 )}
+
+                <label className="block mt-5 text-left">
+                    <span className="block text-sm font-medium text-ink">How should the clips be edited?</span>
+                    <textarea
+                        value={editingRequirements}
+                        onChange={(e) => setEditingRequirements(e.target.value.slice(0, 1000))}
+                        placeholder="Example: Pick funny Hinglish moments and give each clip a short hook title."
+                        rows={3}
+                        maxLength={1000}
+                        className="input-field mt-2 min-h-20 resize-y"
+                        aria-describedby="editing-requirements-help"
+                    />
+                    <span id="editing-requirements-help" className="mt-1 block text-xs text-muted">
+                        Optional. The AI uses this to choose moments and write clip titles. Leave blank for the usual automatic edit.
+                    </span>
+                </label>
 
                 {/* Output format selector */}
                 <div className="mt-5" data-tutorial="output-format">

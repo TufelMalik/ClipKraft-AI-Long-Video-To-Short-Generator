@@ -550,6 +550,8 @@ function App() {
   const [activeTab, setActiveTab] = useState('dashboard'); // dashboard, settings
   // Mobile only: the full nav lives in a drawer behind the header's menu button.
   const [navOpen, setNavOpen] = useState(false);
+  const editorLauncher = useRef(null);
+  const [editorAvailable, setEditorAvailable] = useState(false);
   // Desktop sidebar collapse state (persisted across sessions)
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     try {
@@ -1347,6 +1349,7 @@ function App() {
         auto_hook_style: data.autoHook ? (data.autoHookStyle || 'pill') : null,
         // 'auto' is the server default, so only a deliberate choice travels.
         layouts: data.layout && data.layout !== 'auto' ? data.layout : null,
+        editing_requirements: data.editingRequirements?.trim() || null,
         // Set when the user took the quota wall's "clip the first N minutes"
         // offer: the server reserves N minutes and cuts the source to them.
         max_minutes: data.maxMinutes || null,
@@ -1505,6 +1508,7 @@ function App() {
   // wraps to two lines in a 5-up bar on a 360px phone.
   const navItems = [
     { id: 'dashboard', ord: '01', icon: LayoutDashboard, label: 'Clip Generator', short: 'clips', primary: true },
+    ...(editorAvailable ? [{ id: 'edit-video', ord: '', icon: Scissors, label: 'Edit video', short: 'edit video', action: true }] : []),
     // Cloud only: it runs on the managed pipeline and the Upload-Post connection.
     ...(billingEnabled ? [{ id: 'autopilot', ord: '02', icon: Rocket, label: 'Autopilot', short: 'autopilot', isNew: true }] : []),
     { id: 'saasshorts', ord: '03', icon: Sparkles, label: 'AI Shorts', short: 'ai shorts', byok: true, primary: true },
@@ -1527,6 +1531,11 @@ function App() {
 
   const goToTab = (id) => {
     if (tutorialLock && id !== 'dashboard') return;
+    if (id === 'edit-video') {
+      setNavOpen(false);
+      editorLauncher.current?.open();
+      return;
+    }
     setActiveTab(id);
     setNavOpen(false);
   };
@@ -1594,6 +1603,7 @@ function App() {
                 onClick={() => goToTab(item.id)}
                 title={tabLocked(item.id) ? 'Finish your first clips to unlock' : item.label}
                 disabled={tabLocked(item.id)}
+                aria-haspopup={item.action ? 'dialog' : undefined}
                 className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-input transition-colors ${isActive ? 'bg-paper3 text-ink' : 'text-muted hover:text-ink2 hover:bg-paper3/50'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed hover:bg-transparent hover:text-muted' : ''}`}
               >
                 {isActive && (
@@ -1657,6 +1667,7 @@ function App() {
                 key={item.id}
                 onClick={() => goToTab(item.id)}
                 disabled={tabLocked(item.id)}
+                aria-haspopup={item.action ? 'dialog' : undefined}
                 aria-current={isActive ? 'page' : undefined}
                 title={tabLocked(item.id) ? 'Finish your first clips to unlock' : undefined}
                 className={`relative w-full flex items-center gap-3 px-3 py-3 rounded-input transition-colors ${isActive ? 'bg-paper3 text-ink' : 'text-muted active:bg-paper3/60'} ${tabLocked(item.id) ? 'opacity-40 cursor-not-allowed' : ''}`}
@@ -1794,7 +1805,7 @@ function App() {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-            <LongVideoEditor jobId={jobId} />
+            <LongVideoEditor jobId={jobId} launcherRef={editorLauncher} hideLauncher onAvailabilityChange={setEditorAvailable} />
             {userProfiles.length > 0 && (
               <UserProfileSelector
                 profiles={userProfiles}
@@ -2372,7 +2383,7 @@ function App() {
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-input text-xs font-medium transition-all ${uploadMode === 'openshorts' ? 'bg-paper text-ink shadow-sm border border-rule' : 'text-muted hover:text-ink2'}`}
                   >
                     <Sparkles size={14} className={uploadMode === 'openshorts' ? 'text-brass' : ''} />
-                    <span>Open-Shorts (AI)</span>
+                  <span>Auto clips (AI)</span>
                   </button>
                   <button
                     type="button"
@@ -2380,7 +2391,7 @@ function App() {
                     className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-input text-xs font-medium transition-all ${uploadMode === 'edit-video' ? 'bg-paper text-ink shadow-sm border border-rule' : 'text-muted hover:text-ink2'}`}
                   >
                     <Scissors size={14} className={uploadMode === 'edit-video' ? 'text-brass' : ''} />
-                    <span>Edit Video (Manual)</span>
+                    <span>Manual clips</span>
                   </button>
                 </div>
 

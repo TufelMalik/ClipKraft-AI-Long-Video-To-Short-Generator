@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { getApiUrl } from '../config';
 import { readEditResponse } from '../lib/editApiResponse';
@@ -10,7 +10,7 @@ import './longform/editor.css';
 const seconds = ms => (ms / 1000).toFixed(1);
 const stamp = ms => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
-export default function LongVideoEditor({ jobId }) {
+export default function LongVideoEditor({ jobId, launcherRef = null, hideLauncher = false, onAvailabilityChange }) {
   const [caps, setCaps] = useState(null);
   const [open, setOpen] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -39,6 +39,12 @@ export default function LongVideoEditor({ jobId }) {
   const player = useRef(null);
   const polling = useRef(null);
   const toolGuide = useRef(null);
+
+  useImperativeHandle(launcherRef, () => ({ open: begin }));
+
+  useEffect(() => {
+    onAvailabilityChange?.(Boolean(caps?.enabled || locked));
+  }, [caps?.enabled, locked, onAvailabilityChange]);
 
   async function request(path, body, method = 'POST') {
     const response = await apiFetch(path, { method, headers: { 'X-Longform-Token': token, ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }) },
@@ -134,7 +140,7 @@ export default function LongVideoEditor({ jobId }) {
 
   if (!caps?.enabled && !locked) return null;
   return <>
-    <button className="btn-quiet px-2 sm:px-3 py-2 text-xs" aria-haspopup="dialog" onClick={begin}>Edit full video</button>
+    {!hideLauncher && <button className="btn-quiet px-2 sm:px-3 py-2 text-xs" aria-haspopup="dialog" onClick={begin}>Edit full video</button>}
     <dialog ref={dialog} aria-labelledby="long-video-editor-title" onCancel={() => setOpen(false)} className="long-video-editor">
       <div className="flex justify-between items-start gap-4 mb-4"><div><h2 id="long-video-editor-title" className="text-xl font-semibold">Video editor</h2><p className="text-sm text-muted mt-1">Edit, watch a preview, then save your changes.</p></div><button className="btn-ghost" onClick={() => setOpen(false)} aria-label="Close long video editor">Close</button></div>
       {locked && <form onSubmit={e => { e.preventDefault(); begin(); }} className="flex gap-2"><label>Local editor token <input type="password" autoComplete="off" value={token} onChange={e => setToken(e.target.value)} className="bg-black border p-2" /></label><button className="btn-primary">Unlock</button></form>}
