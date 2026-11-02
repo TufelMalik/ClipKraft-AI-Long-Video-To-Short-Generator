@@ -168,7 +168,12 @@ def _patch_pyav_metadata_errors(av_module=None):
     that exact compatibility error.
     """
     if av_module is None:
-        import av as av_module
+        try:
+            import av as av_module
+        except ImportError:
+            # Unit tests and deployments that do not install the optional ASR
+            # stack can still use the non-transcription pipeline paths.
+            return
     original_open = av_module.open
     if getattr(original_open, '_openshorts_metadata_errors_compat', False):
         return

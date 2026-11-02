@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import sys
 
 import pytest
 
@@ -33,3 +34,9 @@ def test_pyav_compat_preserves_unrelated_type_errors():
 
     with pytest.raises(TypeError, match='invalid mode'):
         av.open('sample.mp4', metadata_errors='ignore')
+
+
+def test_pyav_compat_is_optional_when_asr_dependency_is_not_installed(monkeypatch):
+    monkeypatch.setitem(sys.modules, 'av', None)
+
+    _patch_pyav_metadata_errors()
