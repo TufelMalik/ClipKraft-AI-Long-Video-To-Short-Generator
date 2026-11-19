@@ -49,19 +49,11 @@ const ANIMATION_OPTIONS = [
 const ANIMATION_TO_EFFECT = { pop: 'pop', 'word-highlight': 'glow', karaoke: 'highlight', none: 'none' };
 const EFFECT_TO_ANIMATION = { pop: 'pop', glow: 'word-highlight', highlight: 'karaoke', box: 'karaoke', none: 'none' };
 
-// Font size in the units /api/subtitle takes. M is what every clip ships
-// with (subtitles.AUTO_CAPTION_STYLE font_size 44), so opening the modal and
+// Font size in the units /api/subtitle takes. S is what every clip ships
+// with (subtitles.AUTO_CAPTION_STYLE font_size 24), so opening the modal and
 // applying never shrinks the captions.
-const SIZE_OPTIONS = [
-    { value: 34, label: 'S' },
-    { value: 44, label: 'M' },
-    { value: 56, label: 'L' },
-    { value: 70, label: 'XL' },
-];
-
-// Characters per line at size M, per font: Anton is condensed, Montserrat
-// wide. Bigger text gets proportionally fewer, so a line still fits the 9:16
-// frame instead of wrapping into a wall of text.
+// Character widths are calibrated at the original 44-unit reference size.
+// Bigger text gets proportionally fewer, so a line still fits the 9:16 frame.
 const LINE_CHARS = { Anton: 16, 'Montserrat ExtraBold': 9, Impact: 16 };
 const lineBudget = (fontName, fontSize, oneWord) =>
     oneWord ? 1 : Math.max(6, Math.round((LINE_CHARS[fontName] || 14) * 44 / fontSize));
@@ -80,14 +72,14 @@ const POSITION_OPTIONS = [
 // dimmed base text + strong active word, optional glow/pop/box effect.
 const CAPTION_PRESETS = [
     // What every clip ships with (subtitles.AUTO_CAPTION_STYLE).
-    { id: 'default', label: 'Default',  style: 'karaoke', effect: 'pop',       highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true,  fontName: 'Anton', borderWidth: 4, fontSize: 44 },
+    { id: 'default', label: 'Default',  style: 'karaoke', effect: 'pop',       highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true,  fontName: 'Anton', borderWidth: 4, fontSize: 24 },
     // Trending short-form looks (2026): word-by-word build-up, a box behind
     // the active word, one big word at a time, and the clean shadow-only look.
-    { id: 'hormozi', label: 'Hormozi',  style: 'karaoke', effect: 'pop',       highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 4, shadow: 2, reveal: true, fontSize: 44 },
-    { id: 'pill',    label: 'Pill',     style: 'karaoke', effect: 'highlight', highlightColor: '#7C3AED', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 3, fontSize: 44 },
-    { id: 'oneword', label: 'One word', style: 'karaoke', effect: 'pop',       highlightColor: '#FFFFFF', baseOpacity: 1.0, uppercase: true,  fontName: 'Anton', borderWidth: 5, oneWord: true, fontSize: 70 },
-    { id: 'clean',   label: 'Clean',    style: 'karaoke', effect: 'none',      highlightColor: '#FFFFFF', baseOpacity: 0.7, uppercase: false, fontName: 'Montserrat ExtraBold', borderWidth: 0, shadow: 2, fontSize: 34 },
-    { id: 'lime',    label: 'Lime box', style: 'karaoke', effect: 'highlight', highlightColor: '#A3FF12', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 3, fontSize: 44 },
+    { id: 'hormozi', label: 'Hormozi',  style: 'karaoke', effect: 'pop',       highlightColor: '#FFE500', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 4, shadow: 2, reveal: true, fontSize: 32 },
+    { id: 'pill',    label: 'Pill',    style: 'karaoke', effect: 'highlight', highlightColor: '#7C3AED', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 3, fontSize: 32 },
+    { id: 'oneword', label: 'One word', style: 'karaoke', effect: 'pop',       highlightColor: '#FFFFFF', baseOpacity: 1.0, uppercase: true,  fontName: 'Anton', borderWidth: 5, oneWord: true, fontSize: 54 },
+    { id: 'clean',   label: 'Clean',   style: 'karaoke', effect: 'none',      highlightColor: '#FFFFFF', baseOpacity: 0.7, uppercase: false, fontName: 'Montserrat ExtraBold', borderWidth: 0, shadow: 2, fontSize: 24 },
+    { id: 'lime',    label: 'Lime box', style: 'karaoke', effect: 'highlight', highlightColor: '#A3FF12', baseOpacity: 1.0, uppercase: true,  fontName: 'Montserrat ExtraBold', borderWidth: 3, fontSize: 32 },
     { id: 'tiktok',  label: 'TikTok',     style: 'karaoke', effect: 'none', highlightColor: '#FE2C55', baseOpacity: 0.75, uppercase: false, fontName: 'Verdana', borderWidth: 2 },
     { id: 'reels',   label: 'Reels',      style: 'karaoke', effect: 'none', highlightColor: '#E1306C', baseOpacity: 0.7,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
     { id: 'shorts',  label: 'Shorts Pop', style: 'karaoke', effect: 'pop',  highlightColor: '#FF0000', baseOpacity: 0.7,  uppercase: false, fontName: 'Verdana', borderWidth: 2 },
@@ -118,7 +110,8 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     // Opens on the look the clip already has (the Default preset), so
     // "apply" without touching anything changes nothing.
     const [position, setPosition] = useState('bottom');
-    const [fontSize, setFontSize] = useState(44);
+    const [horizontalPosition, setHorizontalPosition] = useState(50);
+    const [fontSize, setFontSize] = useState(24);
     const [fontName, setFontName] = useState('Anton');
     const [fontColor, setFontColor] = useState('#FFFFFF');
     const [highlightColor, setHighlightColor] = useState('#FFE500');
@@ -163,6 +156,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     };
 
     const maxChars = lineBudget(fontName, fontSize, oneWord);
+    const verticalPositionOffset = ((50 - horizontalPosition) / 50) * 8;
     // Same block duration as the auto captions (AUTO_CAPTION_STYLE).
     const maxDuration = 1.4;
 
@@ -224,6 +218,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
     const subtitleConfig = {
         captions,
         position,
+        horizontalPosition,
         maxChars,
         maxDurationMs: maxDuration * 1000,
         style: {
@@ -261,7 +256,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
         color: fontColor,
         fontSize: '20px',
         fontWeight: 'bold',
-        maxWidth: '85%',
+        maxWidth: '100%',
         padding: '6px 12px',
         borderRadius: '4px',
         textAlign: 'center',
@@ -295,11 +290,18 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                     ) : (
                         <>
                             <video src={videoUrl} className="w-full h-full object-contain opacity-50" muted playsInline />
-                            <div className={`absolute w-full px-8 text-center transition-all duration-300 pointer-events-none flex flex-col items-center justify-center
-                                ${position === 'top' ? 'top-20' : ''}
-                                ${position === 'middle' ? 'top-0 bottom-0' : ''}
-                                ${position === 'bottom' ? 'bottom-20' : ''}
-                            `}>
+                            <div
+                                className="absolute pointer-events-none flex justify-center"
+                                style={{
+                                    left: `${horizontalPosition}%`,
+                                    width: '85%',
+                                    maxWidth: '85%',
+                                    transform: 'translateX(-50%)',
+                                    ...(position === 'top' ? { top: `${12 + verticalPositionOffset}%` } : {}),
+                                    ...(position === 'middle' ? { top: `${45 + verticalPositionOffset}%` } : {}),
+                                    ...(position === 'bottom' ? { bottom: `${10 - verticalPositionOffset}%` } : {}),
+                                }}
+                            >
                                 <span style={fallbackPreviewStyle}>
                                     This is how your subtitles<br/>will appear on the video
                                 </span>
@@ -359,24 +361,55 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
 
                         {/* Position Selector */}
                         <div>
-                            <p className="eyebrow mb-2">Position</p>
+                            <p className="eyebrow mb-2">Vertical position</p>
                             <SegmentedControl
                                 options={POSITION_OPTIONS}
                                 value={position}
                                 onChange={setPosition}
                                 size="sm"
                             />
+                            <div className="mt-3">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="readout">Position</span>
+                                    <span className="readout">{horizontalPosition}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                    value={horizontalPosition}
+                                    onChange={(e) => setHorizontalPosition(parseInt(e.target.value, 10))}
+                                    aria-label="Subtitle horizontal position"
+                                    className="w-full accent-[var(--color-accent)]"
+                                />
+                                <div className="flex justify-between">
+                                    <span className="readout">Left / down</span>
+                                    <span className="readout">Right / up</span>
+                                </div>
+                            </div>
                         </div>
 
-                        {/* Size */}
+                        {/* Text Size */}
                         <div>
-                            <p className="eyebrow mb-2">Size</p>
-                            <SegmentedControl
-                                options={SIZE_OPTIONS}
+                            <div className="flex items-center justify-between mb-1">
+                                <p className="eyebrow">Text size</p>
+                                <span className="readout">{fontSize}</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="12"
+                                max="60"
+                                step="1"
                                 value={fontSize}
-                                onChange={setFontSize}
-                                size="sm"
+                                onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
+                                aria-label="Subtitle text size"
+                                className="w-full accent-[var(--color-accent)]"
                             />
+                            <div className="flex justify-between">
+                                <span className="readout">12</span>
+                                <span className="readout">60</span>
+                            </div>
                         </div>
 
                         {style === 'karaoke' && (
@@ -555,7 +588,7 @@ export default function SubtitleModal({ isOpen, onClose, onGenerate, onApplyAll,
                             const textEdited = originalCaptions.length > 0
                                 && editableText.trim() !== originalCaptions.map((c) => c.text).join(' ').trim();
                             const styleOptions = {
-                                position, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
+                                position, horizontalPosition, fontSize, fontName, fontColor, borderColor, borderWidth, bgColor, bgOpacity,
                                 // Karaoke burn (server-side ASS render)
                                 style, effect, baseOpacity, uppercase, highlightColor,
                                 reveal: !oneWord && reveal, shadow, maxChars, maxDuration,

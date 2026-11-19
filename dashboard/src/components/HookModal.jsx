@@ -63,6 +63,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
     // Stored as `pos`, not `position`: before 'auto' existed every save wrote
     // 'top' whether or not the user ever touched the control.
     const [position, setPosition] = useState(prefs.pos || 'auto');
+    const [horizontalPosition, setHorizontalPosition] = useState(Number(prefs.horizontalPosition ?? 50));
     const [size, setSize] = useState(prefs.size || 'M');
     const [style, setStyle] = useState(prefs.style || 'pill');
     // null = follow the style's own typeface.
@@ -77,6 +78,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
     const hookConfig = {
         text: text || 'Enter your text...',
         position,
+        horizontalPosition,
         size,
         style,
         font: effectiveFont,
@@ -87,12 +89,15 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
     const useRemotionPreview = !!videoUrl;
 
     // Fallback preview logic (same as original)
-    const getPositionClass = () => {
-        switch (position) {
-            case 'center': return 'items-center justify-center';
-            case 'bottom': return 'items-center justify-end pb-[20%]';
-            case 'top': default: return 'items-center justify-start pt-[20%]';
-        }
+    const getPositionStyle = () => {
+        const baseTop = position === 'center' ? 50 : position === 'bottom' ? 70 : 20;
+        const verticalOffset = ((50 - horizontalPosition) / 50) * 8;
+        return {
+            position: 'absolute',
+            left: `${horizontalPosition}%`,
+            top: `${baseTop + verticalOffset}%`,
+            transform: `translateX(-${horizontalPosition}%)${position === 'center' ? ' translateY(-50%)' : ''}`,
+        };
     };
 
     const getSizeStyle = () => {
@@ -122,10 +127,11 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                     ) : (
                         <>
                             <video src={videoUrl} className="w-full h-full object-contain opacity-50" muted playsInline />
-                            <div className={`absolute w-full px-8 text-center transition-all duration-300 pointer-events-none flex flex-col h-full ${getPositionClass()}`}>
+                            <div className="absolute inset-0 pointer-events-none">
                                 <div
                                     className="text-black font-bold px-3 py-2 rounded-xl shadow-2xl text-center whitespace-pre-wrap transition-all duration-200"
                                     style={{
+                                        ...getPositionStyle(),
                                         ...getSizeStyle(),
                                         backgroundColor: 'rgba(255, 255, 255, 0.82)',
                                         ...FONT_CSS[effectiveFont],
@@ -212,7 +218,7 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
 
                         {/* Position Control */}
                         <div>
-                            <p className="eyebrow mb-2">Position</p>
+                            <p className="eyebrow mb-2">Vertical position</p>
                             <SegmentedControl
                                 options={POSITION_OPTIONS}
                                 value={position}
@@ -221,8 +227,8 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                             />
                             {position === 'auto' && (
                                 <p className="text-[11px] text-muted mt-1.5 leading-relaxed">
-                                    Placed where it covers no face and no captions.
-                                    The preview shows it at the top.
+                                    Auto avoids faces and captions. The position slider shifts the hook diagonally;
+                                    the preview shows auto placement at the top.
                                 </p>
                             )}
                             {position === 'bottom' && hasCaptions && (
@@ -231,6 +237,26 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                                     overlap them (and TikTok's UI). Top is the safe zone.
                                 </p>
                             )}
+                            <div className="mt-3">
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className="readout">Position</span>
+                                    <span className="readout">{horizontalPosition}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    step="1"
+                                    value={horizontalPosition}
+                                    onChange={(e) => setHorizontalPosition(parseInt(e.target.value, 10))}
+                                    aria-label="Hook horizontal position"
+                                    className="w-full accent-[var(--color-accent)]"
+                                />
+                                <div className="flex justify-between">
+                                    <span className="readout">Left / down</span>
+                                    <span className="readout">Right / up</span>
+                                </div>
+                            </div>
                         </div>
 
                         {/* Size Control */}
@@ -309,11 +335,11 @@ export default function HookModal({ isOpen, onClose, onGenerate, onRemove, isPro
                             onClick={() => {
                                 try {
                                     localStorage.setItem('os_hook_prefs', JSON.stringify({
-                                        style, font, pos: position, size, entranceAnimation,
+                                        style, font, pos: position, horizontalPosition, size, entranceAnimation,
                                     }));
                                 } catch { /* ignore */ }
                                 onGenerate({
-                                    text, position, size, style, font: effectiveFont,
+                                    text, position, horizontalPosition, size, style, font: effectiveFont,
                                     // Remotion data
                                     remotion: hookConfig,
                                 });
