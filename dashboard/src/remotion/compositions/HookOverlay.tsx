@@ -27,12 +27,6 @@ const SIZE_SCALE: Record<string, number> = {
 
 // Percentages must match hooks.py's overlay_y math (top 20% / bottom 70%),
 // or the preview drifts from what the server path renders.
-const POSITION_STYLE: Record<string, React.CSSProperties> = {
-  top: { top: "20%", bottom: "auto" },
-  center: { top: "50%", bottom: "auto", transform: "translateY(-50%)" },
-  bottom: { top: "70%", bottom: "auto" },
-};
-
 // Must mirror hooks.py HOOK_STYLES (the server-side FFmpeg fallback).
 interface HookLook {
   box: string | null;
@@ -124,7 +118,23 @@ const HookBox: React.FC<HookBoxProps> = ({ config, displayFrames }) => {
     });
   }
 
-  const positionStyle = POSITION_STYLE[config.position] ?? POSITION_STYLE.top;
+  const horizontalPosition = Math.max(0, Math.min(100, config.horizontalPosition ?? 50));
+  const verticalPositionOffset = ((50 - horizontalPosition) / 50) * 8;
+  const baseTop = config.position === "center" ? 50 : config.position === "bottom" ? 70 : 20;
+  const positionStyle: React.CSSProperties = {
+    top: `${baseTop + verticalPositionOffset}%`,
+    bottom: "auto",
+  };
+  const placementStyle: React.CSSProperties = {
+    position: "absolute",
+    left: `${horizontalPosition}%`,
+    width: "max-content",
+    maxWidth: "90%",
+    transform: `translateX(-${horizontalPosition}%)${config.position === "center" ? " translateY(-50%)" : ""}`,
+    display: "flex",
+    justifyContent: "center",
+    ...positionStyle,
+  };
   const look = HOOK_LOOKS[config.style ?? "pill"] ?? HOOK_LOOKS.pill;
 
   // Typeface and size as hooks.py: the chosen font, else the style's own;
@@ -139,19 +149,14 @@ const HookBox: React.FC<HookBoxProps> = ({ config, displayFrames }) => {
     return (
       <div
         style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          display: "flex",
-          justifyContent: "center",
-          ...positionStyle,
+          ...placementStyle,
         }}
       >
         <div
           style={{
             opacity: animOpacity,
             transform: `scale(${animScale}) translateY(${animTranslateY}px)`,
-            maxWidth: "90%",
+            maxWidth: "100%",
             textAlign: "center",
             lineHeight: 1.62,
           }}
@@ -180,19 +185,14 @@ const HookBox: React.FC<HookBoxProps> = ({ config, displayFrames }) => {
   return (
     <div
       style={{
-        position: "absolute",
-        left: 0,
-        right: 0,
-        display: "flex",
-        justifyContent: "center",
-        ...positionStyle,
+        ...placementStyle,
       }}
     >
       <div
         style={{
           opacity: animOpacity,
           transform: `scale(${animScale}) translateY(${animTranslateY}px)`,
-          maxWidth: "90%",
+          maxWidth: "100%",
           backgroundColor: look.box ?? "transparent",
           borderRadius: 20,
           padding: look.box ? `${25 * scale}px ${30 * scale}px` : 0,

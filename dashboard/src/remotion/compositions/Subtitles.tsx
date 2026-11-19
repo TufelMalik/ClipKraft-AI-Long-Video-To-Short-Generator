@@ -20,12 +20,6 @@ interface SubtitlesProps {
 // (github issue #89).
 const RTL_CHARS = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/;
 
-const POSITION_MAP: Record<string, React.CSSProperties> = {
-  top: { top: "12%", bottom: "auto" },
-  middle: { top: "45%", bottom: "auto" },
-  bottom: { bottom: "10%", top: "auto" },
-};
-
 export const Subtitles: React.FC<SubtitlesProps> = ({ config }) => {
   const { fps } = useVideoConfig();
   const blocks = groupCaptionsIntoBlocks(
@@ -82,7 +76,13 @@ const SubtitleBlock: React.FC<SubtitleBlockProps> = ({
   const currentTimeMs = blockStartMs + (frame / fps) * 1000;
   const activeIndex = getActiveWordIndex(block.words, currentTimeMs);
 
-  const positionStyle = POSITION_MAP[position] ?? POSITION_MAP.bottom;
+  const horizontalPosition = Math.max(0, Math.min(100, config.horizontalPosition ?? 50));
+  const verticalPositionOffset = ((50 - horizontalPosition) / 50) * 8;
+  const positionStyle: React.CSSProperties = position === "top"
+    ? { top: `${12 + verticalPositionOffset}%`, bottom: "auto" }
+    : position === "middle"
+      ? { top: `${45 + verticalPositionOffset}%`, bottom: "auto" }
+      : { bottom: `${10 - verticalPositionOffset}%`, top: "auto" };
   const fontStack = getFontStack(style.fontFamily);
 
   // Background box style
@@ -101,8 +101,10 @@ const SubtitleBlock: React.FC<SubtitleBlockProps> = ({
     <div
       style={{
         position: "absolute",
-        left: 0,
-        right: 0,
+        left: `${horizontalPosition}%`,
+        width: "85%",
+        maxWidth: "85%",
+        transform: "translateX(-50%)",
         display: "flex",
         justifyContent: "center",
         ...positionStyle,
@@ -120,7 +122,7 @@ const SubtitleBlock: React.FC<SubtitleBlockProps> = ({
           fontFamily: fontStack,
           fontSize: style.fontSize,
           fontWeight: 700,
-          maxWidth: "85%",
+          maxWidth: "100%",
           ...bgStyle,
         }}
       >

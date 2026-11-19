@@ -35,6 +35,7 @@ export interface SubtitleStyle {
 export interface SubtitleConfig {
   captions: CaptionWord[];
   position: SubtitlePosition;
+  horizontalPosition?: number;
   style: SubtitleStyle;
   // Line budget, mirrors the burn's max_chars / max_duration.
   maxChars?: number;
@@ -61,6 +62,7 @@ export type HookFont = "montserrat" | "anton" | "serif";
 export interface HookConfig {
   text: string;
   position: HookPosition;
+  horizontalPosition?: number;
   size: HookSize;
   style?: HookStyle;
   /** montserrat | anton | serif; unset = the style's own typeface. */
@@ -119,12 +121,14 @@ export const subtitleStyleSchema = z.object({
 export const subtitleConfigSchema = z.object({
   captions: z.array(captionWordSchema),
   position: z.enum(["top", "middle", "bottom"]),
+  horizontalPosition: z.number().min(0).max(100).default(50),
   style: subtitleStyleSchema,
 });
 
 export const hookConfigSchema = z.object({
   text: z.string(),
   position: z.enum(["auto", "top", "center", "bottom"]),
+  horizontalPosition: z.number().min(0).max(100).default(50),
   size: z.enum(["S", "M", "L"]),
   style: z
     .enum(["pill", "classic", "dark", "yellow", "red", "outline", "outline_yellow"])
