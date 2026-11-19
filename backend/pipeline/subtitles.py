@@ -145,7 +145,11 @@ def generate_srt_from_video(video_path, output_path, max_chars=20, max_duration=
 
     if style == "karaoke":
         return generate_ass(transcript, 0, duration, output_path, max_chars, max_duration, **style_opts)
-    return generate_srt(transcript, 0, duration, output_path, max_chars, max_duration)
+    return generate_srt(
+        transcript, 0, duration, output_path, max_chars, max_duration,
+        horizontal_position=style_opts.get("horizontal_position", 50),
+        play_res_x=style_opts.get("play_res_x", 162),
+        alignment=style_opts.get("alignment", "bottom"))
 
 
 def _collect_word_blocks(transcript, clip_start, clip_end, max_chars=20, max_duration=2.0):
@@ -200,7 +204,8 @@ def _collect_word_blocks(transcript, clip_start, clip_end, max_chars=20, max_dur
     return blocks
 
 
-def generate_srt(transcript, clip_start, clip_end, output_path, max_chars=20, max_duration=2.0):
+def generate_srt(transcript, clip_start, clip_end, output_path, max_chars=20, max_duration=2.0,
+                 horizontal_position=50, play_res_x=162, alignment="bottom"):
     """
     Generates an SRT file from the transcript for a specific time range.
     Groups words into short lines suitable for vertical video.
@@ -210,8 +215,19 @@ def generate_srt(transcript, clip_start, clip_end, output_path, max_chars=20, ma
         return False
 
     srt_content = ""
+    horizontal_position = int(_clamp_number(horizontal_position, 0, 100, 50))
+    play_res_x = int(_clamp_number(play_res_x, 1, 10000, 162))
+    position_prefix = ""
+    if horizontal_position != 50:
+        x = round(play_res_x * horizontal_position / 100)
+        vertical_offset = round((50 - horizontal_position) / 50 * 288 * 0.08)
+        align_lower = str(alignment).lower()
+        y = ((SAFE_MARGIN_V if align_lower == "top" else
+              144 if align_lower == "middle" else 288 - SAFE_MARGIN_V)
+             + vertical_offset)
+        position_prefix = f"{{\\pos({x},{y})}}"
     for index, block in enumerate(blocks, 1):
-        text = " ".join(w['word'] for w in block).strip()
+        text = position_prefix + " ".join(w['word'] for w in block).strip()
         srt_content += format_srt_block(index, block[0]['start'], block[-1]['end'], text)
 
     # Write UTF-8 with BOM so Windows/FFmpeg subtitle readers reliably detect Unicode text.
@@ -240,7 +256,7 @@ AUTO_CAPTION_STYLE = {
     "style": "karaoke",
     "alignment": "bottom",
     "font_name": "Anton",
-    "font_size": 44,
+    "font_size": 24,
     "font_color": "#FFFFFF",
     "highlight_color": "#FFE500",
     "border_color": "#000000",
@@ -248,7 +264,7 @@ AUTO_CAPTION_STYLE = {
     "effect": "pop",
     "base_opacity": 1.0,
     "uppercase": True,
-    "max_chars": 16,
+    "max_chars": 29,
     "max_duration": 1.4,
 }
 
@@ -261,26 +277,26 @@ _PRESET_BASE = {"style": "karaoke", "font_color": "#FFFFFF", "bg_opacity": 0.0,
                 "base_opacity": 1.0, "reveal": False, "shadow": 0,
                 "max_duration": 1.4}
 CAPTION_PRESETS = {
-    "default": {**_PRESET_BASE, "font_name": "Anton", "font_size": 44,
+    "default": {**_PRESET_BASE, "font_name": "Anton", "font_size": 24,
                 "highlight_color": "#FFE500", "border_width": 4, "effect": "pop",
-                "uppercase": True, "max_chars": 16},
+                "uppercase": True, "max_chars": 29},
     # Words appear as they are spoken, yellow active word, shadow.
-    "hormozi": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 44,
+    "hormozi": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 32,
                 "highlight_color": "#FFE500", "border_width": 4, "shadow": 2,
                 "effect": "pop", "uppercase": True, "reveal": True, "max_chars": 9},
     # Solid box behind the active word (CapCut / Submagic).
-    "pill": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 44,
+    "pill": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 32,
              "highlight_color": "#7C3AED", "border_width": 3, "effect": "highlight",
              "uppercase": True, "max_chars": 9},
-    "lime": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 44,
+    "lime": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 32,
              "highlight_color": "#A3FF12", "border_width": 3, "effect": "highlight",
              "uppercase": True, "max_chars": 9},
     # One big word at a time.
-    "oneword": {**_PRESET_BASE, "font_name": "Anton", "font_size": 70,
+    "oneword": {**_PRESET_BASE, "font_name": "Anton", "font_size": 54,
                 "highlight_color": "#FFFFFF", "border_width": 5, "effect": "pop",
                 "uppercase": True, "max_chars": 1},
     # No outline, soft shadow, sentence case.
-    "clean": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 34,
+    "clean": {**_PRESET_BASE, "font_name": "Montserrat ExtraBold", "font_size": 24,
               "highlight_color": "#FFFFFF", "border_width": 0, "shadow": 2,
               "effect": "none", "uppercase": False, "base_opacity": 0.7,
               "max_chars": 12},
@@ -351,7 +367,7 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                  highlight_color="#FFD700", bg_color="#000000", bg_opacity=0.0,
                  effect="none", base_opacity=1.0, uppercase=False,
                  margin_v=SAFE_MARGIN_V, split_ranges=None,
-                 reveal=False, shadow=0):
+                 reveal=False, shadow=0, horizontal_position=50, play_res_x=162):
     """
     Generates a karaoke-style ASS file: each block is shown like the SRT path,
     but the currently spoken word is rendered in highlight_color (modern
@@ -382,6 +398,15 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
 
     align_map = {'top': 8, 'middle': 5, 'bottom': 2}
     ass_alignment = align_map.get(str(alignment).lower(), 2)
+    horizontal_position = int(_clamp_number(horizontal_position, 0, 100, 50))
+    play_res_x = int(_clamp_number(play_res_x, 1, 10000, 162))
+    position_x = round(play_res_x * horizontal_position / 100)
+    position_margin_v = int(_clamp_number(margin_v, 0, 200, SAFE_MARGIN_V))
+    align_lower = str(alignment).lower()
+    vertical_offset = round((50 - horizontal_position) / 50 * 288 * 0.08)
+    position_y = ((position_margin_v if align_lower == 'top' else
+                   144 if align_lower == 'middle' else 288 - position_margin_v)
+                  + vertical_offset)
 
     # On a SPLIT scene the two speakers are stacked and the seam between the
     # halves (exactly mid-frame) is the one place the text covers nobody, so
@@ -393,8 +418,13 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
     # this: SRT burns carry one alignment for the whole file.
     seam_ranges = [(float(a), float(b)) for a, b in (split_ranges or [])]
 
-    def seam_prefix(t):
-        return "{\\an5}" if any(a <= t < b for a, b in seam_ranges) else ""
+    def placement_prefix(t):
+        in_seam = any(a <= t < b for a, b in seam_ranges)
+        if horizontal_position == 50:
+            return "{\\an5}" if in_seam else ""
+        if in_seam:
+            return f"{{\\an5\\pos({position_x},{144 + vertical_offset})}}"
+        return f"{{\\pos({position_x},{position_y})}}"
 
     safe_font = _sanitize_font_name(font_name)
     base_opacity = _clamp_number(base_opacity, 0.05, 1.0, 1.0)
@@ -457,9 +487,11 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
             f"{ass_alignment},10,10,{int(_clamp_number(margin_v, 0, 200, SAFE_MARGIN_V))},1\n"
         )
 
+    play_res_x_line = f"PlayResX: {play_res_x}\n" if horizontal_position != 50 else ""
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
+        f"{play_res_x_line}"
         "PlayResY: 288\n"
         "WrapStyle: 0\n"
         "ScaledBorderAndShadow: yes\n"
@@ -489,20 +521,22 @@ def generate_ass(transcript, clip_start, clip_end, output_path,
                 continue
 
             parts = []
+            placement = placement_prefix(ev_start)
+            reset = f"{{\\r}}{placement}"
             for j, other in enumerate(block):
                 text = _escape_ass_text(other['word'])
                 if uppercase:
                     text = text.upper()
                 if j == i:
-                    parts.append(f"{active_prefix}{text}{{\\r}}")
+                    parts.append(f"{active_prefix}{text}{reset}")
                 elif reveal and j > i:
-                    parts.append(f"{{\\alpha&HFF&}}{text}{{\\r}}")
+                    parts.append(f"{{\\alpha&HFF&}}{text}{reset}")
                 else:
                     parts.append(text)
 
             events.append(
                 f"Dialogue: 0,{_ass_time(ev_start)},{_ass_time(ev_end)},Default,,0,0,0,,"
-                f"{seam_prefix(ev_start)}{' '.join(parts)}"
+                f"{placement}{' '.join(parts)}"
             )
 
     if not events:

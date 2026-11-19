@@ -468,13 +468,15 @@ def _auto_place(video_path, text, target_box_width, hook_filename, font_scale, s
 
 
 def add_hook_to_video(video_path, text, output_path, position="top", font_scale=1.0, duration=None, style="pill",
-                      also=None, font=None, layout_ranges=None, has_captions=True):
+                      also=None, font=None, layout_ranges=None, has_captions=True,
+                      horizontal_position=50):
     """
     Overlays text hook onto video.
     position: 'top', 'center', 'bottom', or 'auto' (hook_placement: off the
       faces in the hook's window and off the caption bands; what the job
       pipeline and an editor left on "auto" use). An explicit top/center/
       bottom is drawn exactly where it always was.
+    horizontal_position: 0-100 percentage across the available horizontal space.
     layout_ranges / has_captions: only read by 'auto', to know where the
       captions sit (seam on SPLIT stretches, bottom elsewhere). None reads
       the clip's own ``.layout.json`` sidecar.
@@ -526,7 +528,10 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
                 img_path, box_w, box_h = placed["image"]
 
         # 3. Calculate Overlay Position
-        overlay_x = (video_width - box_w) // 2
+        horizontal_position = max(0.0, min(100.0, float(horizontal_position)))
+        available_width = max(0, video_width - box_w)
+        overlay_x = (available_width // 2 if horizontal_position == 50 else
+                     int(round(available_width * horizontal_position / 100)))
         
         if placed:
             overlay_y = placed["y_px"]
@@ -538,6 +543,10 @@ def add_hook_to_video(video_path, text, output_path, position="top", font_scale=
         else:
              # Top 20% mark
              overlay_y = int(video_height * 0.20)
+
+        if horizontal_position != 50:
+            vertical_offset = round((50 - horizontal_position) / 50 * video_height * 0.08)
+            overlay_y = max(0, min(max(0, video_height - box_h), overlay_y + vertical_offset))
         
         # 4. FFmpeg Command
         print(f"🎬 Overlaying hook: '{text}' at {overlay_x},{overlay_y}")

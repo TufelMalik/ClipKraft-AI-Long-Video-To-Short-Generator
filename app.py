@@ -47,7 +47,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from starlette.background import BackgroundTask
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from s3_uploader import upload_job_artifacts, list_all_clips, upload_actor_to_s3, list_actor_gallery, upload_video_to_gallery, list_video_gallery
 import recut
 import layout_ranges
@@ -957,7 +957,7 @@ def _reapply_captions(job_id, clip_index, video_path):
 # silently swapped someone's small serif captions for big yellow Anton
 # (github issue #82).
 CAPTION_STYLE_FIELDS = (
-    "style", "position", "font_size", "font_name", "font_color",
+    "style", "position", "horizontal_position", "font_size", "font_name", "font_color",
     "border_color", "border_width", "bg_color", "bg_opacity",
     "highlight_color", "effect", "base_opacity", "uppercase", "reveal",
     "shadow", "max_chars", "max_duration")
@@ -978,6 +978,21 @@ def _words_transcript(words, language="en"):
     }
 
 
+def _subtitle_play_res_x(video_path):
+    """Return the ASS script width for a 288-unit subtitle height."""
+    try:
+        raw = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0",
+             video_path],
+            stderr=subprocess.DEVNULL, timeout=30,
+        ).decode().strip().splitlines()[0].split("x")
+        width, height = int(raw[0]), int(raw[1])
+        return max(1, round(288 * width / height))
+    except Exception:
+        return 162
+
+
 def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
                         style, split_ranges=None):
     """Generate the caption file for ``style`` (CAPTION_STYLE_FIELDS, a
@@ -989,10 +1004,13 @@ def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
                  if s["max_chars"] is not None else None)
     max_duration = (max(0.5, min(5.0, float(s["max_duration"])))
                     if s["max_duration"] is not None else None)
+    horizontal_position = int(s["horizontal_position"])
+    play_res_x = _subtitle_play_res_x(video_path) if horizontal_position != 50 else 162
     if s["style"] == "karaoke":
         opts = dict(
             split_ranges=split_ranges,
             alignment=s["position"], fontsize=s["font_size"],
+            horizontal_position=horizontal_position, play_res_x=play_res_x,
             font_name=s["font_name"], font_color=s["font_color"],
             border_color=s["border_color"], border_width=s["border_width"],
             highlight_color=s["highlight_color"], bg_color=s["bg_color"],
@@ -1005,8 +1023,14 @@ def _burn_caption_style(video_path, out_path, sub_path, transcript, start, end,
             opts["max_duration"] = max_duration
         ok = generate_ass(transcript, start, end, sub_path, **opts)
     else:
+        srt_position = ({
+            "horizontal_position": horizontal_position,
+            "play_res_x": play_res_x,
+            "alignment": s["position"],
+        } if horizontal_position != 50 else {})
         ok = generate_srt(transcript, start, end, sub_path,
-                          max_chars or 20, max_duration or 2.0)
+                          max_chars or 20, max_duration or 2.0,
+                          **srt_position)
     if not ok:
         return False
     burn_subtitles(video_path, sub_path, out_path,
@@ -4198,6 +4222,7 @@ class SubtitleRequest(BaseModel):
     job_id: str
     clip_index: int
     position: str = "bottom" # top, middle, bottom
+    horizontal_position: int = Field(default=50, ge=0, le=100)
     font_size: int = 16
     font_name: str = "Verdana"
     font_color: str = "#FFFFFF"
@@ -5243,6 +5268,9 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
     karaoke_opts = dict(
         split_ranges=seam_ranges,
         alignment=req.position, fontsize=req.font_size, font_name=req.font_name,
+        horizontal_position=req.horizontal_position,
+        play_res_x=(_subtitle_play_res_x(input_path)
+                    if req.horizontal_position != 50 else 162),
         font_color=req.font_color, border_color=req.border_color,
         border_width=req.border_width, highlight_color=req.highlight_color,
         bg_color=req.bg_color, bg_opacity=req.bg_opacity,
@@ -5285,7 +5313,12 @@ async def add_subtitles(req: SubtitleRequest, request: Request):
             def run_transcribe_srt():
                 if is_karaoke:
                     return generate_srt_from_video(input_path, srt_path, style="karaoke", **karaoke_opts)
-                return generate_srt_from_video(input_path, srt_path)
+                return generate_srt_from_video(
+                    input_path, srt_path, style="classic",
+                    horizontal_position=req.horizontal_position,
+                    play_res_x=(_subtitle_play_res_x(input_path)
+                                if req.horizontal_position != 50 else 162),
+                    alignment=req.position)
 
             loop = asyncio.get_event_loop()
             try:
@@ -5431,6 +5464,7 @@ class HookRequest(BaseModel):
     # auto (off the faces and the captions, hooks/hook_placement), or an
     # explicit top / center / bottom, which is drawn exactly there.
     position: Optional[str] = "auto"
+    horizontal_position: int = Field(default=50, ge=0, le=100)
     size: Optional[str] = "M" # S, M, L
     duration_seconds: Optional[float] = None  # None = hook visible for the whole clip
     style: Optional[str] = "pill"  # pill/classic/dark/yellow/red/outline/outline_yellow
@@ -5514,7 +5548,8 @@ async def add_hook(req: HookRequest, request: Request):
                     input_path, req.text, output_path, position=req.position or "auto",
                     font_scale=font_scale, duration=req.duration_seconds, style=req.style,
                     font=req.font, layout_ranges=clip_data.get('layout_ranges'),
-                    has_captions=had_captions)
+                    has_captions=had_captions,
+                    horizontal_position=req.horizontal_position)
 
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, run_hook)
@@ -5544,6 +5579,7 @@ async def add_hook(req: HookRequest, request: Request):
     else:
         clip_data['auto_hook'] = {
             "text": req.text, "style": req.style, "font": req.font, "position": req.position,
+            "horizontal_position": req.horizontal_position,
             "duration_seconds": req.duration_seconds,
         }
 
