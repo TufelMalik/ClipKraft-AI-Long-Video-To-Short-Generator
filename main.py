@@ -2543,10 +2543,24 @@ if __name__ == '__main__':
 
         # 4. Gemini Analysis (transcript-driven, or vision for silent videos)
         early_clips = (early_state or {}).get("clips") if early_state else None
+        metadata_file = os.path.join(output_dir, f"{video_title}_metadata.json")
         if (transcript is not None and early_clips
                 and transcript is early_state["transcript"]):
             print("♻️ Using the clips Gemini picked while the video downloaded.")
             clips_data = early_clips
+        elif os.path.isfile(metadata_file):
+            try:
+                with open(metadata_file, 'r', encoding='utf-8') as mf:
+                    cached_data = json.load(mf)
+                if cached_data.get('shorts'):
+                    print(f"♻️ Reusing {len(cached_data['shorts'])} clips from existing metadata.")
+                    clips_data = cached_data
+                elif transcript is not None:
+                    clips_data = get_viral_clips(transcript, duration)
+                else:
+                    clips_data = get_visual_clips(input_video, duration)
+            except Exception:
+                clips_data = get_viral_clips(transcript, duration) if transcript is not None else get_visual_clips(input_video, duration)
         elif transcript is not None:
             clips_data = get_viral_clips(transcript, duration)
         else:
@@ -2589,6 +2603,12 @@ if __name__ == '__main__':
                 clip_filename = f"{video_title}_clip_{i+1}.mp4"
                 clip_temp_path = os.path.join(output_dir, f"temp_{clip_filename}")
                 clip_final_path = os.path.join(output_dir, clip_filename)
+
+                # Skip clips that are already fully rendered and valid from a prior run
+                if os.path.isfile(clip_final_path) and os.path.getsize(clip_final_path) > 1000000:
+                    print(f"   ♻️ Clip {i+1} already rendered and valid ({clip_final_path}) — skipping render.")
+                    print(f"CLIP_READY {i} {os.path.basename(clip_final_path)}")
+                    return True
 
                 try:
                     # ffmpeg cut — re-encoding for precision on strict seconds
@@ -2655,7 +2675,7 @@ if __name__ == '__main__':
             # 6, not 3: measured side by side on the GPU host at load 48-67, a 7-clip
             # job finished 16% sooner with the same CPU, and the peak VRAM stayed
             # at 12 GB of 20 (bench, 25-sep-2026).
-            clip_workers = max(int(os.environ.get("CLIP_WORKERS", "6")), 1)
+            clip_workers = max(int(os.environ.get("CLIP_WORKERS", "2")), 1)
             shorts = clips_data['shorts']
             failed = []
             if os.environ.get("WATERMARK") == "1":

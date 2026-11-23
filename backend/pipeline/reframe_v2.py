@@ -27,6 +27,7 @@ import punch_in
 import screencast_layout
 import layout_ranges
 import split_layout
+from scene_detection import detect_scenes
 from ffmpeg_utils import (video_encode_args, blurred_backdrop, escape_filter_value,
                           QUALITY_FAST, METADATA_SCRUB)
 
@@ -398,7 +399,7 @@ def render(input_video, final_output_video, aspect_ratio, content_ranges=None,
     content_ranges = content_ranges or []
 
     print("   🚀 Reframe engine v2 (ffmpeg-native render)")
-    scenes, fps = m.detect_scenes(input_video)
+    scenes, fps = detect_scenes(input_video)
     fps = float(fps)  # PySceneDetect can hand back a Fraction
     orig_w, orig_h = m.get_video_resolution(input_video)
 

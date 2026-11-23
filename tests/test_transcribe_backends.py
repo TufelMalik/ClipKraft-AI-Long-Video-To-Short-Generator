@@ -196,6 +196,30 @@ def test_whisper_model_is_singleton(fake_faster_whisper, monkeypatch):
     assert len(fake_faster_whisper) == 1
 
 
+def test_cpu_whisper_defaults_use_fast_settings(monkeypatch):
+    monkeypatch.delenv("WHISPER_MODEL", raising=False)
+    monkeypatch.delenv("WHISPER_BEAM_SIZE", raising=False)
+    monkeypatch.setenv("WHISPER_DEVICE", "cpu")
+    cfg = tb.get_whisper_config()
+    assert cfg["model_size"] == "base"
+    assert cfg["beam_size"] == 1
+
+
+def test_gpu_whisper_keeps_accuracy_beam_by_default(monkeypatch):
+    monkeypatch.delenv("WHISPER_BEAM_SIZE", raising=False)
+    monkeypatch.setenv("WHISPER_DEVICE", "cuda")
+    assert tb.get_whisper_config()["beam_size"] == 5
+
+
+def test_whisper_transcription_uses_configured_beam(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(tb, "get_whisper_config", lambda: {"beam_size": 1})
+    monkeypatch.setattr(tb, "run_whisper_transcription", lambda path, **params: (
+        captured.update(params) or [], SimpleNamespace(language="en")))
+    tb._transcribe_with_whisper("video.mp4")
+    assert captured["beam_size"] == 1
+
+
 def test_whisper_model_rebuilds_when_env_changes(fake_faster_whisper, monkeypatch):
     monkeypatch.setenv("WHISPER_MODEL", "small")
     a, _ = tb._get_whisper_model()
@@ -300,6 +324,7 @@ def test_release_models_drops_the_transnetv2_singleton_too(monkeypatch):
 class TestHostAsrSlot:
     """Cross-process cap on GPU transcriptions (flock slots on the shared disk)."""
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="fcntl flock is unavailable on Windows")
     def test_slots_are_exclusive_and_released(self, tmp_path):
         import transcribe_backends as tb
         a = tb.host_asr_slot(slots=2, lock_dir=str(tmp_path), poll=0.01)
@@ -309,6 +334,7 @@ class TestHostAsrSlot:
             assert a._fh.name != b._fh.name
         assert a._fh is None and b._fh is None
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="fcntl flock is unavailable on Windows")
     def test_third_waits_until_one_frees(self, tmp_path):
         import threading, time
         import transcribe_backends as tb

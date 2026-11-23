@@ -2,7 +2,7 @@ import React, { useState, useEffect, useReducer, useRef, useCallback, useMemo, u
 import {
     X, Loader2, Plus, Trash2, ChevronUp, ChevronDown, Scissors,
     AlertCircle, Undo2, Redo2, ChevronsRight, ChevronsLeft,
-    PanelLeft, PanelLeftClose, Film,
+    PanelLeft, PanelLeftClose, Film, Play, Pause,
 } from 'lucide-react';
 import { getApiUrl } from '../config';
 import { apiFetch, apiJson, QuotaError, openQuotaWall } from '../lib/api';
@@ -126,6 +126,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     // numbers rather than a range so either end can be re-marked on its own.
     const [markIn, setMarkIn] = useState(null);
     const [markOut, setMarkOut] = useState(null);
+    const [isPlaying, setIsPlaying] = useState(false);
 
     const videoRef = useRef(null);
     const sourceRef = useRef(null);
@@ -253,6 +254,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     }), [bounds.lo, bounds.hi, minSeg]);
 
     const setSegment = (index, next, { snap = true } = {}) => {
+        if (videoRef.current && !videoRef.current.paused) videoRef.current.pause();
         const updated = segments.map((s, i) => {
             if (i !== index) return s;
             const seg = { ...s, ...next };
@@ -266,6 +268,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     };
 
     const addSegment = () => {
+        if (videoRef.current && !videoRef.current.paused) videoRef.current.pause();
         if (segments.length >= limits.max_segments) return;
         const last = segments[segments.length - 1];
         let start = last ? last.end : bounds.lo;
@@ -276,11 +279,13 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     };
 
     const deleteSegment = (index) => {
+        if (videoRef.current && !videoRef.current.paused) videoRef.current.pause();
         if (segments.length <= 1) return;
         dispatch({ type: 'commit', segments: segments.filter((_, i) => i !== index), select: Math.max(0, index - 1) });
     };
 
     const moveSegment = (index, dir) => {
+        if (videoRef.current && !videoRef.current.paused) videoRef.current.pause();
         const j = index + dir;
         if (j < 0 || j >= segments.length) return;
         const next = segments.slice();
@@ -289,6 +294,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
     };
 
     const splitSegment = (index) => {
+        if (videoRef.current && !videoRef.current.paused) videoRef.current.pause();
         if (segments.length >= limits.max_segments) return;
         const seg = segments[index];
         if (seg.end - seg.start < minSeg * 2) return;
@@ -368,6 +374,9 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         // a native drag-and-drop, which swallows every later pointer event and
         // shows the 🚫 cursor instead of dragging anything).
         if (e.button !== undefined && e.button !== 0) return;
+        if (videoRef.current && !videoRef.current.paused) {
+            videoRef.current.pause();
+        }
         e.preventDefault();
         e.stopPropagation();
         const rect = trackEl?.getBoundingClientRect();
@@ -685,14 +694,30 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
         playSpanRef.current = spanIndexAt(t);
     }, [dirty, renderedToClip, spanIndexAt]);
 
+    const onClipPause = useCallback(() => {
+        setIsPlaying(false);
+        stopPlayLoop();
+    }, [stopPlayLoop]);
+
     // Refuse to roll from a span the file cannot show — same reason as above.
     const onClipPlay = useCallback((e) => {
+        setIsPlaying(true);
         if (dirty) {
             const sp = coverage[playSpanRef.current];
             if (sp && sp.rendered === null) { e.target.pause(); return; }
         }
         startPlayLoop();
     }, [coverage, dirty, startPlayLoop]);
+
+    const togglePlayPause = useCallback(() => {
+        const v = videoRef.current;
+        if (!v) return;
+        if (v.paused) {
+            v.play().catch(() => {});
+        } else {
+            v.pause();
+        }
+    }, []);
 
     const onScrubMove = useCallback((e) => {
         const d = dragRef.current;
@@ -709,6 +734,9 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
 
     const startClipScrub = (e) => {
         if (e.button !== undefined && e.button !== 0) return;
+        if (videoRef.current && !videoRef.current.paused) {
+            videoRef.current.pause();
+        }
         const rect = clipTrackRef.current?.getBoundingClientRect();
         if (!rect || !clipTrackSeconds) return;
         // Same reason as the other tracks: without this Chrome turns the drag
@@ -1299,7 +1327,19 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                     the clip track its full precision back. */}
                 <div className={`flex flex-col min-h-0 gap-2 ${sourceOpen ? 'xl:w-[26rem] 2xl:w-[30rem] xl:shrink-0' : 'flex-1'}`}>
                     <div className="flex items-center justify-between gap-2 shrink-0">
-                        <p className="eyebrow">Program</p>
+                        <div className="flex items-center gap-2">
+                            <p className="eyebrow">Program</p>
+                            <button
+                                type="button"
+                                onClick={togglePlayPause}
+                                className="btn-quiet text-xs py-0.5 px-2 flex items-center gap-1.5 rounded transition-colors"
+                                title={isPlaying ? "Pause preview (Space)" : "Play preview (Space)"}
+                            >
+                                {isPlaying ? <Pause size={12} className="text-brass fill-current" /> : <Play size={12} className="fill-current" />}
+                                <span className="font-medium">{isPlaying ? 'pause' : 'play'}</span>
+                                <span className="text-[10px] text-muted opacity-60">space</span>
+                            </button>
+                        </div>
                         {dirty && (
                             <span className="badge-warn">
                                 {missingSeconds > COVERAGE_EPSILON
@@ -1309,7 +1349,16 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                         )}
                     </div>
                     <div className="flex-1 min-h-0 flex items-center justify-center">
-                        <div className="h-full max-h-full aspect-[9/16] bg-black rounded-card border border-rule overflow-hidden">
+                        <div
+                            onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const isBottomControls = e.clientY > rect.bottom - 45;
+                                if (!isBottomControls) {
+                                    togglePlayPause();
+                                }
+                            }}
+                            className="relative h-full max-h-full aspect-[9/16] bg-black rounded-card border border-rule overflow-hidden cursor-pointer group"
+                        >
                             <video
                                 ref={videoRef}
                                 src={previewUrl}
@@ -1319,7 +1368,7 @@ export default function ClipEditor({ jobId, clipIndex, clipTitle, onClose, onRer
                                 onTimeUpdate={onClipTimeUpdate}
                                 onSeeked={onClipSeeked}
                                 onPlay={onClipPlay}
-                                onPause={stopPlayLoop}
+                                onPause={onClipPause}
                             />
                         </div>
                     </div>

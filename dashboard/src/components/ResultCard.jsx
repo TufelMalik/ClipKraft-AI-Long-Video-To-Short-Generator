@@ -255,6 +255,15 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
             .catch(() => {});
     }, [jobId, index]);
 
+    // Pause video playback whenever an edit modal or clip editor opens
+    useEffect(() => {
+        if (showModal || showDescModal || showSubtitleModal || showHookModal || showTranslateModal || showWatermarkModal) {
+            if (videoRef.current && !videoRef.current.paused) {
+                videoRef.current.pause();
+            }
+        }
+    }, [showModal, showDescModal, showSubtitleModal, showHookModal, showTranslateModal, showWatermarkModal]);
+
     // Which platforms the selected profile actually has linked. `null` means
     // unknown (profile list not loaded) — in that case nothing is gated.
     const knownConnections = Array.isArray(connectedPlatforms);
@@ -921,7 +930,12 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 mt-auto pt-4 border-t border-rule">
                     {onEditClip && (
                         <button
-                            onClick={() => onEditClip(index)}
+                            onClick={() => {
+                                if (videoRef.current && !videoRef.current.paused) {
+                                    videoRef.current.pause();
+                                }
+                                onEditClip(index);
+                            }}
                             className={QUIET_BTN}
                         >
                             <Scissors size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />
@@ -931,7 +945,12 @@ export default function ResultCard({ clip, index, jobId, durable, uploadPostKey,
 
                     {onReframeClip && (
                         <button
-                            onClick={() => onReframeClip(index)}
+                            onClick={() => {
+                                if (videoRef.current && !videoRef.current.paused) {
+                                    videoRef.current.pause();
+                                }
+                                onReframeClip(index);
+                            }}
                             className={QUIET_BTN}
                         >
                             <Crosshair size={16} className="text-muted group-hover:text-brass transition-colors shrink-0" />

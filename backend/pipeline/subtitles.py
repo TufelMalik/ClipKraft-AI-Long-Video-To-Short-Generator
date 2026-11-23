@@ -12,15 +12,20 @@ _STDIO_CONFIGURED = False
 # Shared faster-whisper config so both transcription paths (this module and
 # main.transcribe_video) behave identically. "small" is meaningfully better at
 # German than "base" without being much slower on CPU.
-DEFAULT_WHISPER_MODEL = "small"
+DEFAULT_WHISPER_MODEL = "base"
 
 
 def get_whisper_config():
     """Return the faster-whisper model config, overridable via env vars."""
+    device = os.environ.get("WHISPER_DEVICE", "cpu")
     return {
         "model_size": os.environ.get("WHISPER_MODEL", DEFAULT_WHISPER_MODEL),
-        "device": os.environ.get("WHISPER_DEVICE", "cpu"),
+        "device": device,
         "compute_type": os.environ.get("WHISPER_COMPUTE", "int8"),
+        # Beam 5 on CPU made a 23-minute upload spend 92 minutes in ASR on
+        # the user's machine. Greedy decoding is a large CPU speedup; GPU
+        # keeps the accuracy-oriented beam unless explicitly overridden.
+        "beam_size": int(os.environ.get("WHISPER_BEAM_SIZE", "1" if device == "cpu" else "5")),
     }
 
 

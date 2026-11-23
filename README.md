@@ -113,6 +113,7 @@ docker compose logs -f
 | `JOB_RETENTION_SECONDS` | `604800` | Duration to keep generated clips and jobs before cleanup (7 days / 1 week). |
 | `WHISPER_MODEL` | `base` | Faster-Whisper model size (`base`, `small`, `medium`). |
 | `WHISPER_DEVICE` | `cpu` | Device for whisper (`cpu` or `cuda`). |
+| `WHISPER_BEAM_SIZE` | `1` on CPU, `5` on CUDA | Decode beam size; larger values can improve accuracy but increase processing time. |
 | `WHISPER_COMPUTE` | `int8` | Compute type for whisper (`int8` or `float16`). |
 | `UPLOAD_POST_API_KEY` | *Optional* | Key for Upload-Post social publishing (prompted only on post). |
 

@@ -51,6 +51,7 @@ def fake_main(monkeypatch):
     m.get_video_resolution = lambda path: (1920, 1080)
     m.analyze_scenes_strategy = lambda path, scenes: ['TRACK', 'GENERAL']
     monkeypatch.setitem(sys.modules, "main", m)
+    monkeypatch.setattr(reframe_v2, "detect_scenes", m.detect_scenes)
     return m
 
 

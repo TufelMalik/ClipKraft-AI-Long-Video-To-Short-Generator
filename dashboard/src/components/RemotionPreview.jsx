@@ -21,6 +21,7 @@ export default function RemotionPreview({
     hook = null,
     effects = null,
     className = '',
+    autoPlay = false,
 }) {
     const fps = 30;
     const durationInFrames = Math.max(1, Math.round(durationInSeconds * fps));
@@ -53,7 +54,7 @@ export default function RemotionPreview({
                     height: '100%',
                 }}
                 controls
-                autoPlay
+                autoPlay={autoPlay}
                 loop
             />
         </div>

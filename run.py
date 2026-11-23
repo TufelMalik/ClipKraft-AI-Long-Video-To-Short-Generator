@@ -31,13 +31,25 @@ def get_python_exe():
     raise RuntimeError("No Python runtime has the backend/video dependencies. Install requirements.txt first.")
 
 
+def find_available_port(start, end):
+    for port in range(start, end + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            try:
+                probe.bind(("127.0.0.1", port))
+            except OSError:
+                continue
+            return port
+    raise RuntimeError(f"No available port in range {start}-{end}.")
+
+
 def check_ports(ports=(8000, 5173)):
+    """Raise for occupied ports (kept for callers that require fixed ports)."""
     for port in ports:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             try:
                 probe.bind(("127.0.0.1", port))
             except OSError as exc:
-                raise RuntimeError(f"Port {port} is already in use. Keep the existing server or stop it before relaunching.") from exc
+                raise RuntimeError(f"Port {port} is already in use.") from exc
 
 
 def server_ready(url):
@@ -85,7 +97,8 @@ def stop_server(proc):
         proc.wait()
 
 
-def wait_for_startup(backend, frontend=None, timeout=90):
+def wait_for_startup(backend, frontend=None, timeout=90, backend_url="http://127.0.0.1:8000",
+                    frontend_url="http://127.0.0.1:5173"):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         for name, proc in [("backend", backend), ("frontend", frontend)]:
@@ -94,8 +107,8 @@ def wait_for_startup(backend, frontend=None, timeout=90):
             code = proc.poll()
             if code is not None:
                 raise RuntimeError(f"{name} exited during startup (exit {code}). See .cache/launcher/{name}.log")
-        if server_ready("http://127.0.0.1:8000/health") and (
-                frontend is None or server_ready("http://127.0.0.1:5173/")):
+        if server_ready(f"{backend_url}/health") and (
+                frontend is None or server_ready(f"{frontend_url}/")):
             return
         time.sleep(0.5)
     raise RuntimeError("Servers did not become ready within 90 seconds. See .cache/launcher/*.log")
@@ -107,7 +120,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     backend = frontend = None
     try:
-        check_ports()
+        backend_port = find_available_port(8000, 8010)
+        frontend_port = find_available_port(5173, 5183)
         python_exe = get_python_exe()
         node = shutil.which("node")
         vite = DASHBOARD_DIR / "node_modules/vite/bin/vite.js"
@@ -117,20 +131,22 @@ def main(argv=None):
         log_dir.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env.update(PYTHONUTF8="1", PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1",
-                   VITE_PROXY_TARGET="http://127.0.0.1:8000")
+                   VITE_PROXY_TARGET=f"http://127.0.0.1:{backend_port}")
+        backend_url = f"http://127.0.0.1:{backend_port}"
+        frontend_url = f"http://127.0.0.1:{frontend_port}"
         print(f"Starting OpenShorts with {python_exe}. Logs: {log_dir}", flush=True)
         backend_command = [python_exe, "-X", "faulthandler", "-m", "uvicorn", "app:app",
-                           "--host", "127.0.0.1", "--port", "8000"]
+                           "--host", "127.0.0.1", "--port", str(backend_port)]
         backend = start_server("backend", backend_command, REPO_ROOT, env, log_dir)
         # Existing browser tabs reconnect as soon as Vite starts. Bring up the
         # API first so that initial /api/config cannot fail during ML startup.
-        wait_for_startup(backend)
-        frontend_command = [node, str(vite), "--host", "127.0.0.1", "--port", "5173", "--strictPort"]
+        wait_for_startup(backend, backend_url=backend_url)
+        frontend_command = [node, str(vite), "--host", "127.0.0.1", "--port", str(frontend_port), "--strictPort"]
         frontend = start_server("frontend", frontend_command, DASHBOARD_DIR, env, log_dir)
-        wait_for_startup(backend, frontend)
-        print("OpenShorts ready: http://localhost:5173 | Ctrl+C stops both servers.", flush=True)
+        wait_for_startup(backend, frontend, backend_url=backend_url, frontend_url=frontend_url)
+        print(f"OpenShorts ready: {frontend_url} | Ctrl+C stops both servers.", flush=True)
         if not args.no_browser:
-            webbrowser.open("http://localhost:5173/")
+            webbrowser.open(f"{frontend_url}/")
         restarts = 0
         backend_restarts = 0
         while True:
@@ -141,7 +157,7 @@ def main(argv=None):
                 print(f"Backend exited (exit {backend.returncode}); restarting ({backend_restarts}/3).", flush=True)
                 time.sleep(backend_restarts)
                 backend = start_server("backend", backend_command, REPO_ROOT, env, log_dir)
-                wait_for_startup(backend)
+                wait_for_startup(backend, backend_url=backend_url)
             if frontend.poll() is not None:
                 if restarts >= 3:
                     raise RuntimeError("Frontend repeatedly exited. See .cache/launcher/frontend.log")
@@ -149,7 +165,7 @@ def main(argv=None):
                 print(f"Frontend exited (exit {frontend.returncode}); restarting ({restarts}/3).", flush=True)
                 time.sleep(restarts)
                 frontend = start_server("frontend", frontend_command, DASHBOARD_DIR, env, log_dir)
-                wait_for_startup(backend, frontend)
+                wait_for_startup(backend, frontend, backend_url=backend_url, frontend_url=frontend_url)
             time.sleep(0.5)
     except KeyboardInterrupt:
         print("Stopping OpenShorts...", flush=True)

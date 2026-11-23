@@ -323,6 +323,14 @@ function App() {
   // Multi-session State Management
   const [sessions, setSessions] = useState(() => {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('clear') === '1' || urlParams.get('reset') === '1') {
+        localStorage.removeItem(MULTI_SESSIONS_KEY);
+        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(PENDING_JOB_KEY);
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return [createDefaultSession('Video 1')];
+      }
       const stored = localStorage.getItem(MULTI_SESSIONS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -1481,6 +1489,11 @@ function App() {
     // Flush any pending edit-state sync before dropping the project: the clips
     // themselves are already archived to R2 as they were edited.
     flushClipState(jobId);
+    try {
+      localStorage.removeItem(MULTI_SESSIONS_KEY);
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(PENDING_JOB_KEY);
+    } catch (_) {}
     updateActiveSession({
       status: 'idle',
       jobId: null,

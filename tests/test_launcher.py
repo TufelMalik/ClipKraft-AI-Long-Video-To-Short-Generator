@@ -47,10 +47,10 @@ def runtime(tmp_path, monkeypatch):
     vite.touch()
     monkeypatch.setattr(launcher, 'DASHBOARD_DIR', tmp_path)
     monkeypatch.setattr(launcher, 'REPO_ROOT', tmp_path)
-    monkeypatch.setattr(launcher, 'check_ports', lambda: None)
+    monkeypatch.setattr(launcher, 'find_available_port', lambda start, end: start)
     monkeypatch.setattr(launcher, 'get_python_exe', lambda: 'python')
     monkeypatch.setattr(launcher.shutil, 'which', lambda _: 'node')
-    monkeypatch.setattr(launcher, 'wait_for_startup', lambda *a: None)
+    monkeypatch.setattr(launcher, 'wait_for_startup', lambda *a, **k: None)
     stopped = []
     monkeypatch.setattr(launcher, 'stop_server', lambda p: stopped.append(p) if p is not None else None)
     return stopped
@@ -73,7 +73,7 @@ def test_failed_startup_returns_nonzero_and_cleans_up_both(runtime, monkeypatch)
         children.append(child)
         return child
     monkeypatch.setattr(launcher, 'start_server', start)
-    def fail(*args): raise RuntimeError('not ready')
+    def fail(*args, **kwargs): raise RuntimeError('not ready')
     monkeypatch.setattr(launcher, 'wait_for_startup', fail)
     assert launcher.main(['--no-browser']) == 1
     assert runtime == list(reversed(children))

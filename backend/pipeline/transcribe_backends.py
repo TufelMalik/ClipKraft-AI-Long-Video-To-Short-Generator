@@ -261,7 +261,9 @@ def run_whisper_transcription(media_path, **params):
 
 
 def _transcribe_with_whisper(media_path):
-    segments, info = run_whisper_transcription(media_path, **WHISPER_TRANSCRIBE_PARAMS)
+    params = dict(WHISPER_TRANSCRIBE_PARAMS)
+    params["beam_size"] = get_whisper_config()["beam_size"]
+    segments, info = run_whisper_transcription(media_path, **params)
 
     out_segments = []
     text_parts = []
