@@ -1949,12 +1949,13 @@ def _run_gemini_stage(client, model_name, prompt, schema):
         response_mime_type="application/json",
         response_schema=schema,
     )
-    max_attempts = 3
+    current_model = model_name
+    max_attempts = 6
     for attempt in range(1, max_attempts + 1):
         try:
             if use_local:
-                return llm_backend.generate_json(prompt, schema, model=model_name)
-            response = client.models.generate_content(model=model_name, contents=prompt, config=config)
+                return llm_backend.generate_json(prompt, schema, model=current_model)
+            response = client.models.generate_content(model=current_model, contents=prompt, config=config)
             # Policy blocks are deterministic — retrying only burns quota and
             # time, and the user deserves the real reason instead of a generic
             # "empty response" (prod 23-jul: PROHIBITED_CONTENT on every try).
@@ -1969,7 +1970,7 @@ def _run_gemini_stage(client, model_name, prompt, schema):
             else:
                 parsed = gemini_worker._parse_json_response_text(
                     gemini_worker._get_response_text(response))
-            return parsed, gemini_worker._calculate_cost_analysis(response, model_name)
+            return parsed, gemini_worker._calculate_cost_analysis(response, current_model)
         except gemini_worker.GeminiBlockedError:
             raise  # deterministic policy block — never retry
         except Exception as e:
@@ -1977,6 +1978,7 @@ def _run_gemini_stage(client, model_name, prompt, schema):
             transient = any(tok in msg for tok in (
                 '503', 'UNAVAILABLE', '429', 'RESOURCE_EXHAUSTED',
                 '500', 'INTERNAL', 'overloaded', 'Deadline',
+                'high demand', 'spikes in demand',
                 'empty response body', 'did not contain a JSON object',
                 'Failed to parse Gemini JSON response',
                 # OpenAI-compatible servers: model still loading, busy, or a
@@ -1985,7 +1987,13 @@ def _run_gemini_stage(client, model_name, prompt, schema):
                 'validation error'))
             if attempt == max_attempts or not transient:
                 raise
-            wait = 5 * (2 ** (attempt - 1))
+            # Fallback to alternate model on 503 / high demand
+            if not use_local and any(tok in msg.lower() for tok in ('503', 'unavailable', 'high demand', 'overloaded')):
+                alt_model = 'gemini-3.1-flash-lite' if '3.5' in current_model else 'gemini-3.5-flash-lite'
+                if alt_model != current_model:
+                    print(f"🔄 High demand detected on {current_model}. Switching to fallback {alt_model} for next attempt.")
+                    current_model = alt_model
+            wait = min(30, 5 * attempt)
             who = "LLM server" if use_local else "Gemini"
             print(f"⚠️ {who} transient error (attempt {attempt}/{max_attempts}), retrying in {wait}s: {msg[:150]}")
             time.sleep(wait)
