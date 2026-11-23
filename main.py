@@ -5,14 +5,16 @@ import sys
 _REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 _BACKEND_DIR = os.path.join(_REPO_ROOT, "backend")
 for _p in [
-    _REPO_ROOT,
-    _BACKEND_DIR,
-    os.path.join(_BACKEND_DIR, "pipeline"),
-    os.path.join(_BACKEND_DIR, "services"),
-    os.path.join(_BACKEND_DIR, "utils"),
     os.path.join(_BACKEND_DIR, "api"),
+    os.path.join(_BACKEND_DIR, "utils"),
+    os.path.join(_BACKEND_DIR, "services"),
+    os.path.join(_BACKEND_DIR, "pipeline"),
+    _BACKEND_DIR,
+    _REPO_ROOT,
 ]:
-    if os.path.isdir(_p) and _p not in sys.path:
+    if os.path.isdir(_p):
+        while _p in sys.path:
+            sys.path.remove(_p)
         sys.path.insert(0, _p)
 
 import time
